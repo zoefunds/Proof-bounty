@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "proof-bounty-web",
+      "runtimeExecutable": "/opt/homebrew/bin/node",
+      "runtimeArgs": ["apps/web/node_modules/next/dist/bin/next", "dev", "apps/web", "-p", "3000"],
+      "port": 3000
+    }
+  ]
+}

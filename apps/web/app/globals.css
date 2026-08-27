@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+/*
+  PROOFBOUNTY design tokens — translated 1:1 from
+  /Users/macbook/Documents/Proof-Bounty/DESIGN.md ("Verifiable Authority").
+  Tailwind v4 CSS-first theme: every token below becomes a utility class,
+  e.g. --color-action-green -> bg-action-green / text-action-green / border-action-green.
+*/
+@theme {
+  /* Core surfaces */
+  --color-charcoal-bg: #020617;
+  --color-deep-navy: #0f172a;
+  --color-slate-surface: #1e293b;
+  --color-surface: #0b1326;
+  --color-surface-dim: #0b1326;
+  --color-surface-bright: #31394d;
+  --color-surface-container-lowest: #060e20;
+  --color-surface-container-low: #131b2e;
+  --color-surface-container: #171f33;
+  --color-surface-container-high: #222a3d;
+  --color-surface-container-highest: #2d3449;
+  --color-surface-variant: #2d3449;
+  --color-background: #0b1326;
+
+  /* On-surface text */
+  --color-on-surface: #dae2fd;
+  --color-on-surface-variant: #b9cbbb;
+  --color-on-background: #dae2fd;
+  --color-inverse-surface: #dae2fd;
+  --color-inverse-on-surface: #283044;
+
+  /* Outline */
+  --color-outline: #849586;
+  --color-outline-variant: #3b4a3e;
+  --color-border-subtle: rgba(255, 255, 255, 0.1);
+
+  /* Primary — Action Green */
+  --color-action-green: #00f58c;
+  --color-primary: #cbffd6;
+  --color-on-primary: #00391c;
+  --color-primary-container: #00f58c;
+  --color-on-primary-container: #006b3a;
+  --color-inverse-primary: #006d3b;
+  --color-primary-fixed: #5cffa0;
+  --color-primary-fixed-dim: #00e381;
+  --color-on-primary-fixed: #00210e;
+  --color-on-primary-fixed-variant: #00522b;
+
+  /* Secondary */
+  --color-secondary: #bcc7de;
+  --color-on-secondary: #263143;
+  --color-secondary-container: #3e495d;
+  --color-on-secondary-container: #aeb9d0;
+  --color-secondary-fixed: #d8e3fb;
+  --color-secondary-fixed-dim: #bcc7de;
+  --color-on-secondary-fixed: #111c2d;
+  --color-on-secondary-fixed-variant: #3c475a;
+
+  /* Electric Blue — technical accent */
+  --color-electric-blue: #38bdf8;
+
+  /* Tertiary (gold accent) */
+  --color-tertiary: #fff0db;
+  --color-on-tertiary: #402d00;
+  --color-tertiary-container: #ffcf6f;
+  --color-on-tertiary-container: #785700;
+  --color-tertiary-fixed: #ffdea3;
+  --color-tertiary-fixed-dim: #eec062;
+  --color-on-tertiary-fixed: #261900;
+  --color-on-tertiary-fixed-variant: #5d4200;
+
+  /* Error */
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+
+  /* Status */
+  --color-status-approved: #00f58c;
+  --color-status-partial: #facc15;
+  --color-status-rejected: #f43f5e;
+  --color-status-disputed: #fb923c;
+
+  /* Typography */
+  --font-headline: "Hanken Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono-data: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Radius */
+  --radius-DEFAULT: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+
+  /* Layout */
+  --breakpoint-3xl: 1440px;
+}
+
+body {
+  background-color: var(--color-charcoal-bg);
+  color: var(--color-on-surface);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-charcoal-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-container-highest);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-secondary-container);
+}
+
+/* Glassmorphism utilities, matching the reference prototypes */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--color-border-subtle);
+}
+
+.glass-input {
+  background: rgba(2, 6, 23, 0.5);
+  border: 1px solid var(--color-border-subtle);
+  transition: all 0.2s ease;
+}
+.glass-input:focus {
+  border-color: var(--color-electric-blue);
+  box-shadow: 0 0 0 1px var(--color-electric-blue);
+  outline: none;
+}
+
+.text-gradient {
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(90deg, #dae2fd 0%, #00f58c 100%);
+}
+
+.glow-effect {
+  box-shadow: 0 0 20px rgba(0, 245, 140, 0.2);
+}
+
+/* Focus-visible ring for accessibility across all interactive elements */
+:focus-visible {
+  outline: 2px solid var(--color-electric-blue);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

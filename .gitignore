@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+scripts/test-keys/
+
+# Build outputs
+apps/web/.next/
+apps/web/out/
+apps/web/.vercel/
+apps/api/dist/
+contracts/artifacts/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Misc local scratch
+*.tsbuildinfo

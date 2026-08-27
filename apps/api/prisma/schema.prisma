@@ -1,0 +1,213 @@
+// PROOFBOUNTY backend indexer schema.
+//
+// This database is a CACHE, never a source of truth. Every field here is
+// derived by polling the deployed Intelligent Contract's own view methods
+// (get_bounty, get_bounty_attempts, get_reputation) — the contract's
+// on-chain state is always authoritative. If this cache and the contract
+// ever disagree, the contract wins; `synced_at` on each row tells the
+// frontend/API consumer how stale a given row might be.
+//
+// See PROOFBOUNTY.md section 30 ("Blockchain vs database responsibilities")
+// and memory/MEMORY.md for why this separation is deliberate.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Bounty {
+  bountyId             Int      @id @map("bounty_id")
+  creator              String
+  arbiter              String
+  title                String
+  claimText            String   @map("claim_text")
+  claimPolarity        String   @map("claim_polarity")
+  category             String
+  proofCriteria        String   @map("proof_criteria")
+  evidenceRequirements String   @map("evidence_requirements")
+  status               Int
+  statusLabel          String   @map("status_label")
+  rewardAmount         String   @map("reward_amount")
+  rewardDeposited      String   @map("reward_deposited")
+  requiredBond         String   @map("required_bond")
+  platformFeeBps       Int      @map("platform_fee_bps")
+  attemptCount         Int      @map("attempt_count")
+  attemptsWon          Int      @map("attempts_won")
+  winningAttemptIndex  Int      @map("winning_attempt_index")
+  criteriaLocked       Boolean  @map("criteria_locked")
+  deadline             Int
+  createdAt            Int      @map("created_at")
+  syncedAt             DateTime @default(now()) @updatedAt @map("synced_at")
+
+  attempts Attempt[]
+
+  @@index([status])
+  @@index([category])
+  @@index([creator])
+  @@index([deadline])
+  @@map("bounties")
+}
+
+model Attempt {
+  id                 String   @id @default(cuid())
+  bountyId           Int      @map("bounty_id")
+  attemptIndex        Int      @map("attempt_index")
+  challenger         String
+  bondAmount         String   @map("bond_amount")
+  bondDeposited      String   @map("bond_deposited")
+  status             Int
+  statusLabel        String   @map("status_label")
+  evidenceUrl        String   @map("evidence_url")
+  evidenceDescription String  @map("evidence_description")
+  revisionCount      Int      @map("revision_count")
+  maxRevisions       Int      @map("max_revisions")
+  lastVerdict        String   @map("last_verdict")
+  lastReasoning      String   @map("last_reasoning")
+  lastPayoutBps      Int      @map("last_payout_bps")
+  evidenceContentHash String  @default("") @map("evidence_content_hash")
+  evidenceFetchedAt  Int      @default(0) @map("evidence_fetched_at")
+  disputedBy         String   @map("disputed_by")
+  disputeReason      String   @map("dispute_reason")
+  pendingArbiterVerdict String @default("") @map("pending_arbiter_verdict")
+  pendingPayoutBps   Int      @default(0) @map("pending_payout_bps")
+  appealDeadline     Int      @default(0) @map("appeal_deadline")
+  appealedBy         String   @default("") @map("appealed_by")
+  appealReason       String   @default("") @map("appeal_reason")
+  appealBondDeposited String  @default("0") @map("appeal_bond_deposited")
+  createdAt          Int      @map("created_at")
+  submittedAt        Int      @map("submitted_at")
+  resolvedAt         Int      @map("resolved_at")
+  resolvedByArbiter  Boolean  @map("resolved_by_arbiter")
+  syncedAt           DateTime @default(now()) @updatedAt @map("synced_at")
+
+  bounty Bounty @relation(fields: [bountyId], references: [bountyId])
+
+  @@unique([bountyId, attemptIndex])
+  @@index([challenger])
+  @@index([status])
+  @@map("attempts")
+}
+
+model Reputation {
+  address               String   @id
+  bountiesCreated       Int      @map("bounties_created")
+  bountiesFundedTotal   String   @map("bounties_funded_total")
+  attemptsMade          Int      @map("attempts_made")
+  attemptsWon           Int      @map("attempts_won")
+  attemptsPartial       Int      @map("attempts_partial")
+  attemptsRejected      Int      @map("attempts_rejected")
+  attemptsDisputed      Int      @map("attempts_disputed")
+  totalEarned           String   @map("total_earned")
+  syncedAt              DateTime @default(now()) @updatedAt @map("synced_at")
+
+  @@map("reputation")
+}
+
+/// One row per settlement/status-change transition an indexer poll
+/// observes, powering the activity feed (PROOFBOUNTY.md section 42/§21
+/// "Activity"). Populated by diffing each poll's fetched state against
+/// what was previously cached — the contract itself has no event log we
+/// can subscribe to, so this is reconstructed from state deltas.
+model ActivityEvent {
+  id         String   @id @default(cuid())
+  bountyId   Int      @map("bounty_id")
+  attemptIndex Int?   @map("attempt_index")
+  kind       String   // e.g. "BOUNTY_CREATED", "ATTEMPT_ACCEPTED", "EVIDENCE_SUBMITTED", "VERDICT_RECEIVED", "SETTLED", "DISPUTED", "DISPUTE_RESOLVED"
+  actor      String?
+  detail     String?
+  observedAt DateTime @default(now()) @map("observed_at")
+
+  @@index([bountyId])
+  @@index([observedAt])
+  @@map("activity_events")
+}
+
+/// Per-recipient notifications, derived from the same state-diff detection
+/// that populates ActivityEvent -- but ActivityEvent is a global feed
+/// (anyone can read "what happened"), while Notification is targeted at
+/// whichever specific address the event actually concerns (a bounty's
+/// creator, an attempt's challenger, a bounty's arbiter, etc.), which is
+/// what a bell-icon/inbox UI needs. Polling-based (no push/email/webhook
+/// delivery yet -- see memory/MEMORY.md for that scope boundary).
+model Notification {
+  id         String   @id @default(cuid())
+  recipient  String   // lowercased address
+  kind       String   // mirrors ActivityEvent.kind
+  bountyId   Int      @map("bounty_id")
+  attemptIndex Int?   @map("attempt_index")
+  title      String
+  body       String
+  read       Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([recipient, read])
+  @@index([recipient, createdAt])
+  @@map("notifications")
+}
+
+/// Independently-archived copy of evidence content, computed and stored by
+/// this backend -- NOT by the contract. Exists specifically to close the
+/// gap between the contract's on-chain `evidence_content_hash` (a fast,
+/// consensus-safe FNV-1a fingerprint used only for drift detection -- see
+/// that field's docstring in contracts/proof_bounty.py for why it is
+/// deliberately not cryptographically strong) and genuine evidence
+/// provenance: this table stores the actual fetched page text alongside a
+/// REAL SHA-256 digest (Node's `crypto` module, computed server-side,
+/// no sandbox-availability uncertainty the way the contract's own Python
+/// runtime had), retrieval metadata, and content type -- a real,
+/// independently-reproducible archive, not just a fingerprint of one.
+/// Fetched via `services/evidence-archiver.ts`, which applies the same
+/// SSRF protections as any server-side fetch of a user-supplied URL
+/// (private IP ranges, cloud metadata endpoints, non-http schemes, size
+/// and timeout limits all blocked/bounded).
+model EvidenceArchive {
+  id            String   @id @default(cuid())
+  bountyId      Int      @map("bounty_id")
+  attemptIndex  Int      @map("attempt_index")
+  url           String
+  contentSha256 String   @map("content_sha256")
+  contentType   String   @map("content_type")
+  byteLength    Int      @map("byte_length")
+  content       String   // truncated to a bounded size, see ARCHIVE_MAX_BYTES
+  truncated     Boolean  @default(false)
+  fetchedAt     DateTime @default(now()) @map("fetched_at")
+  fetchError    String?  @map("fetch_error")
+  // FNV-1a fingerprint of this row's own content, computed with the exact
+  // same algorithm as the contract's `_content_digest` (see
+  // evidence-archiver.ts). NOT proof the two are the same fetch -- this
+  // archive is independently fetched, asynchronously, and a live page is
+  // a mutable resource, so an honest mismatch is expected sometimes, not
+  // necessarily a sign of tampering. Recorded so a mismatch is at least
+  // OBSERVABLE and queryable rather than silently assumed away.
+  // Defaulted to "" (audit-driven fix): a genuinely required-with-no-default
+  // column here would refuse to apply against any database where this
+  // table already has rows (Prisma warns exactly this on the migration
+  // that introduced this column). Production had zero rows at the time
+  // that migration ran, so no data was actually lost, but the default
+  // makes this safe to apply against ANY future environment/table state
+  // instead of relying on that having stayed true by luck.
+  localContentDigest    String  @default("") @map("local_content_digest")
+  // Set once the corresponding on-chain Attempt.evidence_content_hash is
+  // known (may lag if the archive was written before verification ran).
+  // Null until then; true/false once both hashes are available.
+  onChainHashMatch       Boolean? @map("on_chain_hash_match")
+  onChainHashCheckedAt   DateTime? @map("on_chain_hash_checked_at")
+
+  @@unique([bountyId, attemptIndex, contentSha256])
+  @@index([bountyId, attemptIndex])
+  @@map("evidence_archives")
+}
+
+/// Single-row table tracking indexer progress/health.
+model IndexerState {
+  id              Int      @id @default(1)
+  lastBountyCount Int      @default(0) @map("last_bounty_count")
+  lastPolledAt    DateTime @default(now()) @map("last_polled_at")
+  lastError       String?  @map("last_error")
+
+  @@map("indexer_state")
+}
