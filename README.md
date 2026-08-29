@@ -35,12 +35,12 @@ architecture decision, and every audit round this project has been through
 | Frontend (`apps/web`, Next.js 15 App Router) | ✅ Deployed — [proof-bounty.vercel.app](https://proof-bounty.vercel.app) |
 | Backend indexer/API (`apps/api`, Fastify + Postgres) | ✅ Deployed — [proofbounty-api.fly.dev](https://proofbounty-api.fly.dev) |
 | Automated test suite (`tests/integration/`, pytest/`gltest`) | ✅ 31 tests — 30 pass deterministically, 1 depends on live LLM output |
-| Manual live-chain verification scripts (`scripts/`) | ✅ 9 scripts, all run against live StudioNet with realistic content |
+| Manual live-chain verification scripts (`scripts/`) | ✅ 13 scripts, all run against live StudioNet with realistic content |
 | Notifications | ✅ Built — per-recipient, polling-based (not push/email/webhook) |
 | Independent off-chain evidence archive | ✅ Built — real SHA-256, SSRF-hardened, cross-checked against the on-chain fingerprint |
 | End-to-end test with a real, unmanaged browser wallet (MetaMask etc.) | ⏳ Not yet run |
 
-**Live contract address:** `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (GenLayer StudioNet, deployed 2026-08-26 — the 4th deployment of this project; see `memory/MEMORY.md` for why the first three were retired)
+**Live contract address:** `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (GenLayer StudioNet, deployed 2026-08-29 — the 5th deployment of this project; see `memory/MEMORY.md` for why the first four were retired)
 
 ## How it works
 
@@ -184,7 +184,7 @@ docstring section.
 ```
 contracts/                The single production Intelligent Contract (proof_bounty.py)
 tests/integration/        pytest/gltest integration tests — 30 deterministic + 1 LLM-dependent
-scripts/                  Manual live-StudioNet verification scripts (01-09), realistic content
+scripts/                  Manual live-StudioNet verification scripts (01-13), realistic content
 apps/web/                 Next.js frontend (deployed to Vercel)
 apps/api/                 Backend indexer + REST API + evidence archiver (deployed to Fly.io)
 memory/MEMORY.md          Persistent cross-session project memory — read first

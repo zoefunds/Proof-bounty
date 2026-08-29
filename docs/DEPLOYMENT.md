@@ -9,9 +9,9 @@ Deployed manually by the project owner via GenLayer Studio/CLI (never by
 an agent, per project rules — an agent must never invent or assume a
 contract address). Current deployment:
 
-- Address: `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (the **4th**
+- Address: `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (the **5th**
   deployment of this project — see `memory/MEMORY.md` for why the first
-  three were retired)
+  four were retired)
 - Constructor args: `treasury_address` (the deployer's own wallet),
   `default_fee_bps=250` (2.5%)
 - Verify the live schema matches source at any time:

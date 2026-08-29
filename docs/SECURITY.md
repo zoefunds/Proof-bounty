@@ -56,11 +56,13 @@ classes of bug:
 
 A third-party audit scored the project 2,850/4,000 and flagged several
 real gaps, addressed in `contracts/proof_bounty.py`. **All of the fixes
-below are confirmed live on the current deployment**
-(`0x4b8b06e93aD3e06F29a4491844904743B6d9a0b2`) — verified directly against
-the deployed bytecode via `genlayer code <address>`, not assumed from the
-source tree alone. See `memory/MEMORY.md`'s "⚠️ CURRENT DEPLOYMENT STATE"
-block for the live/retired address history.
+below have been confirmed live on a deployed contract at some point** —
+verified directly against the deployed bytecode via `genlayer code
+<address>`, not assumed from the source tree alone. See
+`memory/MEMORY.md`'s "⚠️ CURRENT DEPLOYMENT STATE" block for the
+current live address and the full live/retired address history —
+that table, not this section, is the source of truth for which address
+is live right now.
 
 - **Settlement availability (DoS).** `_mark_other_attempts_lost_race`
   loops once over every attempt on a bounty every time it settles. Without
