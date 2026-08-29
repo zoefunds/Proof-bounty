@@ -40,7 +40,7 @@ architecture decision, and every audit round this project has been through
 | Independent off-chain evidence archive | ✅ Built — real SHA-256, SSRF-hardened, cross-checked against the on-chain fingerprint |
 | End-to-end test with a real, unmanaged browser wallet (MetaMask etc.) | ⏳ Not yet run |
 
-**Live contract address:** `0x4b8b06e93aD3e06F29a4491844904743B6d9a0b2` (GenLayer StudioNet, deployed 2026-08-26 — the 4th deployment of this project; see `memory/MEMORY.md` for why the first three were retired)
+**Live contract address:** `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (GenLayer StudioNet, deployed 2026-08-26 — the 4th deployment of this project; see `memory/MEMORY.md` for why the first three were retired)
 
 ## How it works
 

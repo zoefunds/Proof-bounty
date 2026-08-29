@@ -31,3 +31,6 @@ __pycache__/
 
 # Misc local scratch
 *.tsbuildinfo
+
+# Unrelated video-production assets (not part of this repo's codebase)
+video/
