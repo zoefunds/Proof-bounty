@@ -98,6 +98,24 @@ per-account/per-endpoint daily quota; exhausting that quota surfaces as
 real infrastructure behavior, not a bug, and the indexer recovers on its
 own once the window resets.
 
+**The hour/day windows fail fast; only the minute window sleeps.** When
+the per-minute budget needs pacing, the caller genuinely should wait a
+few seconds — `throttleMinuteWindow` sleeps for that, bounded to ~2s per
+call. But when the hour/day budget is exhausted, blocking the caller for
+however long is left in that window (up to a full 24 hours for the daily
+one) is actively harmful, not just slow: this was a real bug, found and
+fixed live, where the indexer's single-flight poll guard held `running`
+true for the entire multi-hour sleep, making the whole indexer look
+silently, indefinitely hung with no error logged. `throttleFixedWindow`
+now throws `RateLimitExhaustedError` immediately instead, so the current
+poll aborts cleanly and the next scheduled tick (20s later) just
+re-checks and aborts again harmlessly until the window resets — see
+`rate-limiter.ts`'s docstring for the full incident. `genlayer.ts`'s
+`readContract` also wraps both the rate limiter's own Redis round-trip
+and the actual RPC call in a hard 20s timeout, as a second line of
+defense against a genuinely stuck connection (StudioNet's gateway has,
+separately, been observed live to open a connection and never respond).
+
 **Why the frontend still reads the contract directly for critical paths.**
 The bounty detail page (`/bounty/[id]`) — where a user is about to lock a
 bond or check exact escrow amounts before signing — reads straight from
@@ -128,13 +146,22 @@ product). The short version:
   top-level README's "How it works" section for what each one means and
   why `INSUFFICIENT_EVIDENCE` is a distinct outcome from both `REJECTED`
   and `NEEDS_REVISION`.
-- **Two-tier, appealable dispute resolution.** `resolve_dispute` (the
-  named arbiter's ruling) never moves money immediately — it opens an
-  appeal window. `finalize_arbiter_resolution` executes the ruling only
-  once that window has closed unappealed. `appeal_arbiter_resolution` +
-  `resolve_appeal` (protocol-owner-only) form the second and final tier.
-  This is what makes "appealable" structurally real: once GEN has actually
-  left the contract there is nothing left to appeal *to*.
+- **Two-tier, appealable dispute resolution, bounded not routine.**
+  `resolve_dispute` (the named arbiter's ruling) never moves money
+  immediately — it opens an appeal window. `finalize_arbiter_resolution`
+  executes the ruling only once that window has closed unappealed.
+  `appeal_arbiter_resolution` + `resolve_appeal` (protocol-owner-only)
+  form the second and final tier. This is what makes "appealable"
+  structurally real: once GEN has actually left the contract there is
+  nothing left to appeal *to*. Critically, this tier can **never** touch
+  a reward AI consensus has already paid (`ATTEMPT_WON` is excluded from
+  `raise_dispute`'s live-state check), every human ruling requires
+  non-empty written justification, and whether a ruling actually changed
+  the AI's outcome (versus merely confirming it) is recorded per-attempt
+  and rolled into two contract-wide counters queryable via
+  `get_settlement_transparency()` — see `docs/CONTRACT_REVIEW.md` and
+  the contract's own "ARBITER TRUST MODEL AND THE APPEAL PATH" module
+  docstring section for the full mechanism.
 - **Escrow safety**: every payout path reads the ledger, zeros it, persists
   state, and only then transfers value — structurally immune to
   double-spend regardless of call ordering, and correct even for
@@ -198,24 +225,42 @@ product). The short version:
 
 ## Testing structure
 
-- `tests/integration/test_proof_bounty.py` — 31 `gltest`/pytest tests.
-  30 run deterministically (23 original coverage + 8 added across this
-  project's audit rounds for the settlement-DoS cap, zero-bond terminal
-  transitions, and the full appeal state machine); 1
-  (`test_request_verification_full_lifecycle`) depends on live,
-  non-deterministic LLM output and is marked `@pytest.mark.llm` so it can
-  be excluded from routine runs. One test
-  (`test_zero_bond_reclaim_after_settlement_is_a_safe_noop`) uses
-  `gltest.direct` — a native, offline Python contract runner with
-  Foundry-style cheatcodes (`prank`, `deal`, time control via directly
-  patching `gl.message_raw["datetime"]`, since this contract's `_now()`
-  reads that field directly rather than `datetime.now()`) — to
-  deterministically advance past a 2-day appeal window and reach a state
-  no live-network test can practically wait out.
-- `scripts/01`–`09` (`.mjs`) — manual, live-StudioNet verification
+- `tests/integration/test_proof_bounty.py` — 34 `gltest`/pytest tests.
+  33 run deterministically (against live StudioNet or offline via
+  `gltest.direct`), covering deployment/constructor validation, bounty
+  creation and escrow, attempt lifecycle, access control, criteria
+  immutability, cancellation/timeout recovery, the admin surface, the
+  settlement-DoS cap, zero-bond terminal transitions, the full appeal
+  state machine, and the arbiter-bounding/settlement-transparency
+  machinery (mandatory `resolution_note`, `human_verdict_overrode_ai`
+  correctness in both the "no prior AI verdict" and "human agrees with
+  AI" cases). 1 (`test_request_verification_full_lifecycle`) depends on
+  live, non-deterministic LLM output and is marked `@pytest.mark.llm` so
+  it can be excluded from routine runs. Three tests use `gltest.direct`
+  — a native, offline Python contract runner with Foundry-style
+  cheatcodes (`prank`, `deal`, time control via directly patching
+  `gl.message_raw["datetime"]`, since this contract's `_now()` reads
+  that field directly rather than `datetime.now()`, and direct storage
+  access for isolating the transparency-flag logic from GenVM's nondet
+  plumbing) — for scenarios needing real elapsed time (a 2-day appeal
+  window) or deterministic control over AI-verdict comparison that live
+  StudioNet can't practically provide.
+- `scripts/00`–`13` (`.mjs`) — manual, live-StudioNet verification
   scripts using `genlayer-js` directly, with realistic, detailed bounty
-  content (not placeholder text), covering the full lifecycle end to end:
-  initial state, validation failures, the happy-path multi-challenger
-  race, the rejected path, remaining write methods, dispute flow,
-  reputation, the 40-attempt cap + zero-bond terminal transitions, and
-  the full two-tier appeal flow through the owner-gated boundary.
+  content (not placeholder text). `00-reviewer-verify.mjs` is a
+  read-only, no-wallet-needed check of deployed address, bytecode/source
+  match, critical reads, and settlement-transparency numbers. `01`–`09`
+  cover the original full lifecycle end to end (initial state,
+  validation failures, the happy-path multi-challenger race, the
+  rejected path, remaining write methods, dispute flow, reputation, the
+  40-attempt cap + zero-bond terminal transitions, and the full two-tier
+  appeal flow through the owner-gated boundary). `10`–`13` are four
+  independent, self-contained product-test rounds (multi-challenger
+  settlement race + deadline extension, rejected-verdict forfeiture, the
+  full dispute/arbiter/appeal chain, and bounty cancellation + a
+  close-call PARTIAL-shaped claim) designed to exercise every non-admin
+  read and write method with zero forced/errored transactions — see each
+  script's own header comment for why the three inherently time-gated
+  write methods (`claim_creator_timeout`, `finalize_arbiter_resolution`,
+  `force_default_resolution`) are deliberately not exercised live in a
+  single session.

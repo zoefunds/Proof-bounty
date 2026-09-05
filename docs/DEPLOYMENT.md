@@ -118,10 +118,14 @@ full list and `docs/ARCHITECTURE.md` for why all three windows exist).
 - `GET /health` — indexer/cache status, for humans/dashboards. Returns
   `status: "degraded"` (still `200`, not `503` — the API keeps serving
   cached data) if the last poll errored, most commonly
-  `"Rate limit exceeded: 5000 requests per day"` after heavy real test
-  volume. This is genuine GenLayer infrastructure behavior, not a bug —
-  the indexer resumes on its own once the daily window resets; no
-  intervention needed beyond waiting.
+  `"daily GenLayer RPC budget exhausted, resets in <N>s"` after heavy
+  real test volume. This is genuine GenLayer infrastructure behavior,
+  not a bug — the indexer resumes on its own once the daily window
+  resets; no intervention needed beyond waiting. (The rate limiter
+  reports this proactively and immediately now — it used to block the
+  poll loop silently for up to the full window instead; see
+  `docs/SECURITY.md`'s "Availability incident" note if `/health` is ever
+  frozen/stale instead of showing a clear error like this.)
 
 ### Database migrations
 

@@ -211,6 +211,21 @@ none exists yet because the backend never fetches evidence URLs itself.
   there's no user-submitted data path into the database that bypasses the
   contract itself, so an attacker can't inject arbitrary cache rows
   without first getting the contract to accept the underlying transaction.
+- **Availability incident, found and fixed live (2026-09-05).** The
+  indexer's rate limiter used to `await sleep(waitMs)` when the hour/day
+  RPC budget was exhausted, where `waitMs` can legitimately be up to 24
+  hours — a caller synchronously awaiting that is indistinguishable, from
+  the poll loop's single-flight guard's perspective, from a genuine hang:
+  `/health` froze with no error logged for 40+ minutes straight, and
+  survived both a machine restart and a fresh redeploy (both immediately
+  re-hung on the same exhausted budget). Fixed: `throttleFixedWindow` now
+  throws immediately instead of sleeping when the hour/day budget is
+  spent, so a poll aborts cleanly and the next tick just re-checks and
+  aborts again harmlessly. `readContract` also now wraps the rate
+  limiter's own Redis round-trip and the RPC call itself in a hard 20s
+  timeout, as a second line of defense against a genuinely stuck
+  connection. See `docs/ARCHITECTURE.md` and `rate-limiter.ts`'s
+  docstring for the full incident.
 
 ## 5. Backend evidence archival
 

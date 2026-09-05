@@ -21,11 +21,11 @@ this table immediately after every redeploy, never leave it stale.**
 
 | | |
 |---|---|
-| **Live contract address** | `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (5th deployment, 2026-08-29) |
-| **Does the LIVE bytecode match `contracts/proof_bounty.py` right now?** | **NO, as of the arbiter-bounding/settlement-transparency changes below (`get_settlement_transparency`, `Attempt.human_verdict_overrode_ai`, mandatory `resolution_note`, the full module docstring). `scripts/00-reviewer-verify.mjs` confirms this live -- it diffs deployed source against local source and calls `get_settlement_transparency`, which fails on the currently-live contract because that method doesn't exist there yet.** |
-| **What's needed to make them match again** | The user redeploys the current `contracts/proof_bounty.py` (per standing project rule: only the user deploys, never an agent) and provides the new address; update this table in the same breath. `genvm-lint check contracts/proof_bounty.py --json` already passes clean (33 methods) and the direct-mode tests covering the new machinery already pass locally -- see "Arbiter-bounding pass" below. |
-| **Database state** | Both local dev Postgres and production Postgres were FULLY TRUNCATED on this redeploy (`bounties`, `attempts`, `reputation`, `activity_events`, `notifications`, `evidence_archives`, all restarted at identity 0; `indexer_state` reset to `last_bounty_count=0`) — explicit user instruction, since the old cached rows referenced bounty ids from the retired `0x4b8b...` contract and would collide with the new contract's fresh counter. Note: one poll cycle briefly re-cached the old contract's data on production because the DB was truncated BEFORE the Fly secret's address switch fully rolled out — caught and re-truncated after confirming the new address was live. Standing lesson: truncate only AFTER confirming the new address is actually live everywhere, not before. If you see bounty ids that don't exist on the new contract, or old-contract data anywhere, something restored stale state — investigate, don't assume it's fine. |
-| **Retired addresses — never use these** | `0x48958AD558F32044196aBa3EEb013A19e8c142D6` (1st — `get_contract_balance`/`resolve_dispute` bugs), `0x890fE7ca02b277aC883B430FE73a50987F73419B` (2nd — those fixed, pre-dates settlement-DoS/evidence-manifest/appeal/deadline fixes), `0x9A2bF6ef636070CaeE07E325835a85C71EC91c71` (3rd — had settlement-DoS/appeal/evidence-manifest fixes but predated `INSUFFICIENT_EVIDENCE`, the DNS-rebind fix, and the evidence-archive hash cross-check), `0x4b8b06e93aD3e06F29a4491844904743B6d9a0b2` (4th — had all fixes through the evidence-archive hash cross-check and the `resolve_appeal` live verification; retired only because the user deployed a fresh 5th contract for a new full product-test round, not because of any known bug) |
+| **Live contract address** | `0x330Ac647fb4001d557B1De3692c454142e440079` (6th deployment, 2026-09-05) |
+| **Does the LIVE bytecode match `contracts/proof_bounty.py` right now?** | **Yes, confirmed directly against the deployed bytecode via `genlayer code 0x330Ac647fb4001d557B1De3692c454142e440079` diffed against the local source file — clean. This is the deployment that first included the arbiter-bounding/settlement-transparency machinery (`get_settlement_transparency`, `Attempt.human_verdict_overrode_ai`, mandatory `resolution_note`, the full module docstring).** |
+| **What's needed to make them match again** | Nothing right now — they match. Next time source changes, the user redeploys (per standing project rule: only the user deploys, never an agent) and provides the new address; update this table in the same breath. |
+| **Database state** | Both local dev Postgres and production Postgres were FULLY TRUNCATED on this redeploy (`bounties`, `attempts`, `reputation`, `activity_events`, `notifications`, `evidence_archives`, all restarted at identity 0; `indexer_state` reset to `last_bounty_count=0`) — explicit user instruction, since the old cached rows referenced bounty ids from the retired `0xf3799...` contract and would collide with the new contract's fresh counter. Currently populated with 5 real bounties from a live product-test round (see "Sixth deployment" section below). |
+| **Retired addresses — never use these** | `0x48958AD558F32044196aBa3EEb013A19e8c142D6` (1st — `get_contract_balance`/`resolve_dispute` bugs), `0x890fE7ca02b277aC883B430FE73a50987F73419B` (2nd — those fixed, pre-dates settlement-DoS/evidence-manifest/appeal/deadline fixes), `0x9A2bF6ef636070CaeE07E325835a85C71EC91c71` (3rd — had settlement-DoS/appeal/evidence-manifest fixes but predated `INSUFFICIENT_EVIDENCE`, the DNS-rebind fix, and the evidence-archive hash cross-check), `0x4b8b06e93aD3e06F29a4491844904743B6d9a0b2` (4th — had all fixes through the evidence-archive hash cross-check and the `resolve_appeal` live verification), `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (5th — had the arbiter-bounding source changes written but not yet deployed when it was superseded); addresses 4 and 5 were both simply superseded by later product-test rounds, not known bugs |
 
 A second, independent audit pass specifically flagged the PREVIOUS version
 of this block as contradicting `docs/DEPLOYMENT.md` (which already had the
@@ -1298,3 +1298,64 @@ concrete bounding of the existing tier:
 `get_settlement_transparency` view). Once redeployed, rerun
 `scripts/00-reviewer-verify.mjs` to confirm the drift is gone, then the
 live StudioNet subset of `tests/integration` for full confirmation.
+
+## Sixth deployment (0x330Ac647fb4001d557B1De3692c454142e440079) — product tests + a real backend bug found and fixed (2026-09-05)
+
+The arbiter-bounding source changes above were redeployed by the user.
+Verified matching source via `genlayer code` diff (clean) before doing
+anything else. Both databases fully truncated and reconfirmed empty
+before testing (learned discipline from the prior round: truncate only
+AFTER the new address is confirmed live everywhere, not before, since a
+poll cycle can otherwise re-cache the old contract's data in the gap).
+
+Ran the same 4-product-test structure as prior rounds (A: settlement
+race + `extend_bounty_deadline`, B: rejected verdict + forfeiture, C:
+full dispute/arbiter/appeal chain, D: `cancel_bounty` + a close-call
+PARTIAL-shaped claim), all with real, detailed, non-placeholder bounty
+content, all with zero genuine on-chain errors (one client-side
+pre-broadcast 30/min rate-limit rejection in Test B -- confirmed via
+`bounty_counter` that no transaction was ever created, retried clean).
+`get_settlement_transparency()` after the round showed 2 AI-consensus
+settlements, 0 human overrides -- Test C's disputed/appealed attempt
+correctly not yet counted since it's still pending.
+
+**A real, previously-invisible backend bug was found and fixed while
+investigating why the frontend wasn't showing the new bounties.** The
+indexer appeared completely stuck (`/health`'s `lastPolledAt` frozen,
+no error, `"indexer: previous poll still running, skipping this tick"`
+repeating forever) -- survived a full machine restart AND a fresh
+redeploy, immediately hanging again both times, which ruled out a
+one-off fluke. Root-caused via direct SSH testing on the live machine
+(Redis `PING` and the exact rate-limiter Lua `EVAL` both worked fine
+standalone, ruling out plain connectivity) down to the actual bug:
+`throttleFixedWindow` in `apps/api/src/lib/rate-limiter.ts` called
+`await sleep(waitMs)` where `waitMs` is however long is left in the
+current hour/day window when that budget is exhausted -- up to a full
+24 hours for the daily window. A caller synchronously awaiting a
+multi-hour sleep is indistinguishable, from every other poll tick's
+perspective, from a genuine hang: the `running` single-flight guard
+stays true the whole time, `indexer_state` never gets touched, and
+nothing is logged. This had apparently never surfaced before because no
+prior session had driven this much cumulative real RPC volume against a
+freshly-truncated cache in one day.
+
+Fixed properly, not papered over: `throttleFixedWindow` now throws a
+`RateLimitExhaustedError` immediately instead of sleeping when the
+hour/day budget is spent, so the current poll aborts cleanly and the
+*next* scheduled tick (20s later) just re-checks the budget and aborts
+again harmlessly until it resets -- `/health` now reports
+`"daily GenLayer RPC budget exhausted, resets in ~Ns"` immediately and
+accurately instead of going dark. Also added a hard 20s timeout around
+both the rate limiter's own Redis round-trip and the GenLayer RPC read
+itself (`apps/api/src/lib/genlayer.ts`), as a second line of defense
+against a genuinely stuck connection (also a real, separately-confirmed
+failure mode observed earlier this session via live StudioNet testing).
+
+**As of this entry, the real daily GenLayer RPC quota is exhausted**
+(today's cumulative volume: multiple redeploys, 4 rounds of product
+tests, plus the SSH-based diagnostic work above) -- `/health` will keep
+correctly reporting `degraded` with the exhaustion reason until the
+window resets naturally; no further action needed, the indexer resumes
+on its own. The on-chain data itself was independently confirmed correct
+throughout (direct `genlayer-js` reads), never in question -- only the
+backend's cache was affected.

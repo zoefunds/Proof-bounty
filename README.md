@@ -72,12 +72,14 @@ architecture decision, and every audit round this project has been through
 | Frontend (`apps/web`, Next.js 15 App Router) | ✅ Deployed — [proof-bounty.vercel.app](https://proof-bounty.vercel.app) |
 | Backend indexer/API (`apps/api`, Fastify + Postgres) | ✅ Deployed — [proofbounty-api.fly.dev](https://proofbounty-api.fly.dev) |
 | Automated test suite (`tests/integration/`, pytest/`gltest`) | ✅ 34 tests — 33 pass deterministically, 1 depends on live LLM output |
-| Manual live-chain verification scripts (`scripts/`) | ✅ 13 scripts, all run against live StudioNet with realistic content |
+| Manual live-chain verification scripts (`scripts/`) | ✅ 14 scripts (`00`–`13`), all run against live StudioNet with realistic content |
+| CI (`.github/workflows/ci.yml`) | ✅ Contract lint, offline test subset, frontend/backend lint+typecheck+build, dependency audit on every push |
 | Notifications | ✅ Built — per-recipient, polling-based (not push/email/webhook) |
 | Independent off-chain evidence archive | ✅ Built — real SHA-256, SSRF-hardened, cross-checked against the on-chain fingerprint |
+| Arbiter/appeal override transparency | ✅ Built — `get_settlement_transparency()`; bounded structurally (can never touch an already-paid AI settlement) |
 | End-to-end test with a real, unmanaged browser wallet (MetaMask etc.) | ⏳ Not yet run |
 
-**Live contract address:** `0x330Ac647fb4001d557B1De3692c454142e440079` (GenLayer StudioNet, deployed 2026-08-29 — the 6th deployment of this project; see `memory/MEMORY.md` for why the first five were retired)
+**Live contract address:** `0x330Ac647fb4001d557B1De3692c454142e440079` (GenLayer StudioNet, deployed 2026-09-05 — the 6th deployment of this project; see `memory/MEMORY.md` for why the first five were retired)
 
 ## How it works
 
@@ -221,7 +223,7 @@ docstring section.
 ```
 contracts/                The single production Intelligent Contract (proof_bounty.py)
 tests/integration/        pytest/gltest integration tests — 33 deterministic + 1 LLM-dependent
-scripts/                  Manual live-StudioNet verification scripts (01-13), realistic content
+scripts/                  Manual live-StudioNet verification scripts (00-13), realistic content
 apps/web/                 Next.js frontend (deployed to Vercel)
 apps/api/                 Backend indexer + REST API + evidence archiver (deployed to Fly.io)
 memory/MEMORY.md          Persistent cross-session project memory — read first
@@ -236,6 +238,14 @@ docs/                     ARCHITECTURE.md, SECURITY.md, DEPLOYMENT.md, ENVIRONME
 cd contracts
 genvm-lint check proof_bounty.py --json      # lint + schema validation (33 methods, 19 write / 14 view)
 genvm-lint schema proof_bounty.py             # print the full ABI
+```
+
+To verify the live deployment matches this source, and see the current
+settlement-transparency numbers, in one command (read-only, no wallet
+needed):
+
+```bash
+cd scripts && node 00-reviewer-verify.mjs
 ```
 
 Deployment target is GenLayer Studio / StudioNet. **The contract is deployed
@@ -282,6 +292,7 @@ npm run dev            # http://localhost:8080
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design, data flow, why each piece exists
 - [`docs/SECURITY.md`](docs/SECURITY.md) — threat model, escrow safety, SSRF/evidence handling, rate limiting
+- [`docs/CONTRACT_REVIEW.md`](docs/CONTRACT_REVIEW.md) — every major contract invariant mapped to exact code and exact test
 - [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — how everything got deployed and how to redeploy
 - [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) — every environment variable, what it does, where it's set
 - [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) — local dev workflow, testing, code style
