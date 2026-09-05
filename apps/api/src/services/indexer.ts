@@ -28,6 +28,7 @@ import { prisma } from "../lib/prisma.js";
 import { readContract } from "../lib/genlayer.js";
 import { env } from "../lib/env.js";
 import { archiveEvidence } from "./evidence-archiver.js";
+import { RateLimitExhaustedError } from "../lib/rate-limiter.js";
 
 interface BountyRow {
   bounty_id: number;
@@ -257,7 +258,17 @@ export async function pollOnce(logger: { info: (o: unknown, msg?: string) => voi
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.error({ err: message }, "indexer: poll failed");
+    // A RateLimitExhaustedError is expected, self-recovering behavior --
+    // GenLayer's real hour/day RPC budget really is finite, and this
+    // aborts the current poll immediately instead of blocking (see
+    // rate-limiter.ts's docstring for why blocking here specifically
+    // caused a real multi-hour indexer stall this project hit live).
+    // Everything else is a genuine failure worth an error-level log.
+    if (err instanceof RateLimitExhaustedError) {
+      logger.info({ err: message }, "indexer: poll skipped, rate limit budget exhausted");
+    } else {
+      logger.error({ err: message }, "indexer: poll failed");
+    }
     await prisma.indexerState.upsert({
       where: { id: 1 },
       create: { id: 1, lastBountyCount: 0, lastPolledAt: new Date(), lastError: message },

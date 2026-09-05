@@ -136,6 +136,20 @@ async function throttleMinuteWindow(): Promise<void> {
   }
 }
 
+/** Thrown instead of blocking the caller for a potentially multi-hour
+ * `sleep()` when the hour/day budget is exhausted -- see
+ * `throttleGenLayerCall`'s docstring for why blocking synchronously here
+ * is actively harmful for a poll-loop caller, not just slow. */
+export class RateLimitExhaustedError extends Error {
+  constructor(
+    public readonly window: string,
+    public readonly retryAfterMs: number
+  ) {
+    super(`${window} GenLayer RPC budget exhausted, resets in ${Math.ceil(retryAfterMs / 1000)}s`);
+    this.name = "RateLimitExhaustedError";
+  }
+}
+
 async function throttleFixedWindow(window: FixedWindow): Promise<void> {
   const client = getRedis();
   if (client) {
@@ -150,14 +164,11 @@ async function throttleFixedWindow(window: FixedWindow): Promise<void> {
         window.windowMs.toString()
       )) as number;
       if (waitMs > 0) {
-        console.error(
-          `[rate-limiter] ${window.name} GenLayer RPC budget (${window.limit}) exhausted, ` +
-            `waiting ${Math.ceil(waitMs / 1000)}s for the next ${window.name} window`
-        );
-        await sleep(waitMs);
+        throw new RateLimitExhaustedError(window.name, waitMs);
       }
       return;
     } catch (err) {
+      if (err instanceof RateLimitExhaustedError) throw err;
       console.error(`[rate-limiter] redis eval (${window.name}) failed, falling back to local pacing:`, err);
     }
   }
@@ -170,15 +181,33 @@ async function throttleFixedWindow(window: FixedWindow): Promise<void> {
   state.count += 1;
   if (state.count > window.limit) {
     const waitMs = state.start + window.windowMs - now;
-    if (waitMs > 0) await sleep(waitMs);
-    state.start = Date.now();
-    state.count = 1;
+    localWindowState.set(window.name, state);
+    if (waitMs > 0) throw new RateLimitExhaustedError(window.name, waitMs);
+    return;
   }
   localWindowState.set(window.name, state);
 }
 
-/** Call before every outbound GenLayer RPC request. Resolves once the
- * per-minute, per-hour, AND per-day budgets all have a slot available. */
+/**
+ * Call before every outbound GenLayer RPC request. Resolves once the
+ * per-minute, per-hour, AND per-day budgets all have a slot available.
+ *
+ * The per-minute window still SLEEPS for its (bounded, at most ~2s per
+ * call) slot -- smoothing ordinary burst traffic is exactly what it's
+ * for. The hour/day windows do NOT sleep: when either is exhausted, this
+ * throws `RateLimitExhaustedError` immediately instead of blocking the
+ * caller for up to the full window (as long as 24 hours for the daily
+ * budget). That distinction matters specifically for the indexer's poll
+ * loop (see indexer.ts's `running` guard): a caller synchronously
+ * `await`ing a multi-hour sleep looks, from every other tick's
+ * perspective, indistinguishable from a genuinely hung process -- this
+ * was confirmed live, where an exhausted daily budget held the poll loop
+ * "running" for over 40 minutes with zero progress and zero error
+ * logged, because the code was technically still awaiting a legitimate
+ * (if far too long) sleep rather than actually being stuck. Callers that
+ * hit this error should abort the current unit of work and let the next
+ * scheduled retry re-check the budget, not block waiting for it.
+ */
 export async function throttleGenLayerCall(): Promise<void> {
   await throttleFixedWindow(DAY_WINDOW);
   await throttleFixedWindow(HOUR_WINDOW);
