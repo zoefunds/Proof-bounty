@@ -12,16 +12,53 @@ never a challenger's own account of what their evidence shows. The first
 challenger to receive a valid, favorable verdict wins the reward; every other
 concurrent challenger's bond is returned.
 
-**Honest framing:** this is **AI-reviewed, centrally-appealable escrow** —
-GenLayer's validator consensus makes the *initial* evaluation of live web
-evidence genuinely decentralized and non-custodial, but disputes escalate to
-a single per-bounty arbiter (chosen by the bounty's creator, who may
-self-arbitrate) and, on appeal, to the protocol owner as the final tier.
-That is a real, disclosed trust boundary — not full decentralized
-adjudication. A staked, multi-arbiter registry with slashing and conflict
-disclosure would move this further toward that; not implemented, and the
-contract's own `ARBITER TRUST MODEL` module docstring explains the reasoning
-for the current scope.
+## Why this needs GenLayer, not a plain LLM call or a centralized backend
+
+The creator and challenger have directly opposed financial incentives on
+the same question — whoever operates the judge has a standing reason to
+favor whichever side pays or controls them, and the decision moves real
+money irreversibly the moment it's made. A single company's API key
+behind an LLM call fails on both counts: whoever holds the key is the
+centralized judge, and whoever calls the API controls what "evidence" the
+model even sees. GenLayer's contribution here is specific and checkable,
+not decorative:
+
+- `gl.nondet.web.render` means **multiple independent validators each
+  fetch the disputed URL themselves** — no single party's claimed fetch
+  is ever taken on faith, unlike a backend that fetches once and reports
+  "I checked, it's fine."
+- `gl.eq_principle.prompt_comparative` means the payout only happens if
+  those independent judgments **agree** — see
+  `contracts/proof_bounty.py`'s "AVOIDING UNDETERMINED / LEADER-ROTATION
+  OUTCOMES" module-docstring section for exactly what has to match (and
+  what's deliberately exempted, like free-text reasoning) for that
+  agreement to be meaningful rather than a formatting accident.
+- The full trace — locked funds → frozen criteria → live GenVM fetch →
+  validator consensus → irreversible state transition — is written out
+  method-by-method in that same module docstring's "END-TO-END TRACE"
+  section, and every step of it is exercised by a real transaction in
+  `scripts/` and asserted on in `tests/integration/`.
+
+**The one deliberate exception, sharply bounded, not routine:** either
+party may dispute a verdict to the bounty's named arbiter, escalatable to
+the protocol owner on appeal. This tier can **never** touch a reward AI
+consensus has already paid — `ATTEMPT_WON` is structurally excluded from
+`raise_dispute`'s live-state check, so there is no method on this
+contract that can reopen a completed AI-driven settlement. Every human
+ruling requires non-empty, on-chain written justification, and whether a
+ruling actually changed the outcome (versus merely confirming what AI
+consensus already concluded) is recorded per-attempt and rolled into two
+contract-wide, always-queryable counters —
+`get_settlement_transparency()` — so whether this tier is genuinely
+exceptional or is quietly doing most of the work is a live on-chain fact,
+not a claim anyone has to take on faith. See `contracts/proof_bounty.py`'s
+"ARBITER TRUST MODEL AND THE APPEAL PATH" section and
+[`docs/CONTRACT_REVIEW.md`](docs/CONTRACT_REVIEW.md) for the full
+mechanism and the exact code/tests that prove each part of it. A staked,
+multi-arbiter marketplace with slashing would push this further toward
+full decentralization; that is a materially larger protocol redesign,
+documented as an intentional scope boundary, not silently left
+unaddressed.
 
 See [`memory/MEMORY.md`](memory/MEMORY.md) for the full build history, every
 architecture decision, and every audit round this project has been through
@@ -31,10 +68,10 @@ architecture decision, and every audit round this project has been through
 
 | Piece | State |
 |---|---|
-| Intelligent Contract (`contracts/proof_bounty.py`, 2,107 lines, 32 public methods) | ✅ Deployed live on StudioNet, deployed bytecode confirmed matching source via `genlayer code` |
+| Intelligent Contract (`contracts/proof_bounty.py`, 2,535 lines, 33 public methods) | ✅ Deployed live on StudioNet, deployed bytecode confirmed matching source via `genlayer code` |
 | Frontend (`apps/web`, Next.js 15 App Router) | ✅ Deployed — [proof-bounty.vercel.app](https://proof-bounty.vercel.app) |
 | Backend indexer/API (`apps/api`, Fastify + Postgres) | ✅ Deployed — [proofbounty-api.fly.dev](https://proofbounty-api.fly.dev) |
-| Automated test suite (`tests/integration/`, pytest/`gltest`) | ✅ 31 tests — 30 pass deterministically, 1 depends on live LLM output |
+| Automated test suite (`tests/integration/`, pytest/`gltest`) | ✅ 34 tests — 33 pass deterministically, 1 depends on live LLM output |
 | Manual live-chain verification scripts (`scripts/`) | ✅ 13 scripts, all run against live StudioNet with realistic content |
 | Notifications | ✅ Built — per-recipient, polling-based (not push/email/webhook) |
 | Independent off-chain evidence archive | ✅ Built — real SHA-256, SSRF-hardened, cross-checked against the on-chain fingerprint |
@@ -183,7 +220,7 @@ docstring section.
 
 ```
 contracts/                The single production Intelligent Contract (proof_bounty.py)
-tests/integration/        pytest/gltest integration tests — 30 deterministic + 1 LLM-dependent
+tests/integration/        pytest/gltest integration tests — 33 deterministic + 1 LLM-dependent
 scripts/                  Manual live-StudioNet verification scripts (01-13), realistic content
 apps/web/                 Next.js frontend (deployed to Vercel)
 apps/api/                 Backend indexer + REST API + evidence archiver (deployed to Fly.io)
@@ -197,7 +234,7 @@ docs/                     ARCHITECTURE.md, SECURITY.md, DEPLOYMENT.md, ENVIRONME
 
 ```bash
 cd contracts
-genvm-lint check proof_bounty.py --json      # lint + schema validation (32 methods, 19 write / 13 view)
+genvm-lint check proof_bounty.py --json      # lint + schema validation (33 methods, 19 write / 14 view)
 genvm-lint schema proof_bounty.py             # print the full ABI
 ```
 
@@ -212,7 +249,7 @@ cd tests/integration  # or run from repo root with the path below
 gltest tests/integration -v -s -m "not llm" --network studionet --chain-type studionet
 ```
 
-This runs all 30 deterministic tests for real against live StudioNet
+This runs all 33 deterministic tests for real against live StudioNet
 (no `gltest.config.yaml` exists in this repo, so the network must be passed
 explicitly or the CLI silently defaults to `localnet`). One test
 (`test_zero_bond_reclaim_after_settlement_is_a_safe_noop`) uses

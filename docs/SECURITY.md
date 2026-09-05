@@ -113,6 +113,20 @@ is live right now.
   in this contract (fee/treasury/pause); extending that same, disclosed
   trust boundary to be the appeal backstop is a smaller and more honest
   surface than inventing a new unstaked authority for this one purpose.
+- **This tier is bounded, not routine — three independent, verifiable
+  guarantees.** (1) It can never touch a reward AI consensus has already
+  paid: `ATTEMPT_WON` is excluded from `raise_dispute`'s live-state
+  check, so no method on this contract can reopen a completed AI-driven
+  settlement. (2) Every human ruling requires non-empty, on-chain written
+  justification (`resolve_dispute`/`resolve_appeal` both reject an empty
+  `resolution_note`). (3) Whether a ruling actually changed the outcome
+  versus merely confirming AI's own conclusion is computed per-attempt
+  (`Attempt.human_verdict_overrode_ai`) and rolled into two contract-wide
+  counters, queryable via `get_settlement_transparency()` — the real
+  override rate is a live on-chain fact, not a claim. See
+  `contracts/proof_bounty.py`'s module docstring ("ARBITER TRUST MODEL
+  AND THE APPEAL PATH") and `docs/CONTRACT_REVIEW.md` for the exact code
+  and tests behind each guarantee.
 
 ## 2. Contract-side web fetching
 

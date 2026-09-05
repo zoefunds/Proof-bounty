@@ -101,7 +101,7 @@ subject to the Redis rate limiter.
 ## Testing philosophy
 
 - Contract: `genvm-lint` on every change (fast, catches schema issues),
-  `gltest` integration tests for behavior (31 total — 30 deterministic
+  `gltest` integration tests for behavior (34 total — 33 deterministic
   against real StudioNet or the offline `gltest.direct` runner, 1
   dependent on live LLM output and marked `@pytest.mark.llm`).
 - Frontend/backend: `tsc --noEmit` is the fast gate; a real build

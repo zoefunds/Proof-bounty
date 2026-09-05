@@ -22,8 +22,8 @@ this table immediately after every redeploy, never leave it stale.**
 | | |
 |---|---|
 | **Live contract address** | `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (5th deployment, 2026-08-29) |
-| **Does the LIVE bytecode match `contracts/proof_bounty.py` right now?** | **Yes, confirmed directly against the deployed bytecode, not assumed: `genlayer code 0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` was fetched and diffed against the local source file — clean (only CLI banner noise/trailing-newline difference).** |
-| **What's needed to make them match again** | Nothing right now — they match. Next time source changes, the user redeploys (per standing project rule: only the user deploys, never an agent) and provides the new address; update this table in the same breath. |
+| **Does the LIVE bytecode match `contracts/proof_bounty.py` right now?** | **NO, as of the arbiter-bounding/settlement-transparency changes below (`get_settlement_transparency`, `Attempt.human_verdict_overrode_ai`, mandatory `resolution_note`, the full module docstring). `scripts/00-reviewer-verify.mjs` confirms this live -- it diffs deployed source against local source and calls `get_settlement_transparency`, which fails on the currently-live contract because that method doesn't exist there yet.** |
+| **What's needed to make them match again** | The user redeploys the current `contracts/proof_bounty.py` (per standing project rule: only the user deploys, never an agent) and provides the new address; update this table in the same breath. `genvm-lint check contracts/proof_bounty.py --json` already passes clean (33 methods) and the direct-mode tests covering the new machinery already pass locally -- see "Arbiter-bounding pass" below. |
 | **Database state** | Both local dev Postgres and production Postgres were FULLY TRUNCATED on this redeploy (`bounties`, `attempts`, `reputation`, `activity_events`, `notifications`, `evidence_archives`, all restarted at identity 0; `indexer_state` reset to `last_bounty_count=0`) — explicit user instruction, since the old cached rows referenced bounty ids from the retired `0x4b8b...` contract and would collide with the new contract's fresh counter. Note: one poll cycle briefly re-cached the old contract's data on production because the DB was truncated BEFORE the Fly secret's address switch fully rolled out — caught and re-truncated after confirming the new address was live. Standing lesson: truncate only AFTER confirming the new address is actually live everywhere, not before. If you see bounty ids that don't exist on the new contract, or old-contract data anywhere, something restored stale state — investigate, don't assume it's fine. |
 | **Retired addresses — never use these** | `0x48958AD558F32044196aBa3EEb013A19e8c142D6` (1st — `get_contract_balance`/`resolve_dispute` bugs), `0x890fE7ca02b277aC883B430FE73a50987F73419B` (2nd — those fixed, pre-dates settlement-DoS/evidence-manifest/appeal/deadline fixes), `0x9A2bF6ef636070CaeE07E325835a85C71EC91c71` (3rd — had settlement-DoS/appeal/evidence-manifest fixes but predated `INSUFFICIENT_EVIDENCE`, the DNS-rebind fix, and the evidence-archive hash cross-check), `0x4b8b06e93aD3e06F29a4491844904743B6d9a0b2` (4th — had all fixes through the evidence-archive hash cross-check and the `resolve_appeal` live verification; retired only because the user deployed a fresh 5th contract for a new full product-test round, not because of any known bug) |
 
@@ -1211,3 +1211,90 @@ rounds.
 **Contract ownership is back on the user's own wallet as of this entry
 -- confirmed via `get_owner()`.** Do not assume `dv-buyer` still has any
 special privilege on this contract going forward.
+
+## Arbiter-bounding and settlement-transparency pass (2026-08-29)
+
+An external review flagged the arbiter/owner-appeal tier as the main
+weak point in the "GenLayer consensus genuinely decides the payout"
+claim: since the owner CAN rule on appeals, the framing risked reading
+as "the owner can routinely decide payouts," which would undercut the
+whole point of using GenLayer consensus in the first place. Response,
+entirely in `contracts/proof_bounty.py` plus supporting docs/tests --
+deliberately NOT a redesign into a full staked multi-arbiter
+marketplace (explicitly out of scope, documented as such), but a sharp,
+concrete bounding of the existing tier:
+
+1. **Found and fixed a real, pre-existing inaccuracy**: the `owner`
+   field's docstring claimed the owner "can never move escrowed funds,
+   resolve a dispute, or otherwise touch a single bounty's money" --
+   false, since `resolve_appeal` already existed and does exactly that.
+   Fixed to state the real, bounded truth.
+2. **Found a bigger, real gap**: five separate places in the contract
+   referenced named "module docstring" sections (`GENLAYER AS REFEREE`,
+   `AVOIDING UNDETERMINED / LEADER-ROTATION OUTCOMES`, `ARBITER TRUST
+   MODEL AND THE APPEAL PATH`, `SETTLEMENT AVAILABILITY`, `EVIDENCE
+   MANIFEST`) that **did not actually exist anywhere in the file** --
+   phantom documentation, presumably lost at some point without anyone
+   catching it since Python doesn't care if prose references are
+   accurate. Wrote the actual module docstring containing all five
+   sections, including a full "WHY THIS NEEDS GENLAYER" section and an
+   end-to-end user-action-to-payout trace.
+3. **New structural bound, already true but now proven+enforced**: a
+   human ruling can never touch `ATTEMPT_WON` (terminal, excluded from
+   `raise_dispute`'s live-state check) -- AI-driven payouts are
+   structurally un-reachable by the arbiter/appeal tier. This was
+   already the case; it's now the centerpiece of the "bounded, not
+   routine" argument in the docs.
+4. **New enforcement**: `resolve_dispute` and `resolve_appeal` both now
+   reject an empty `resolution_note` -- every human ruling that can move
+   money requires written, on-chain justification.
+5. **New transparency mechanism**: `Attempt.human_verdict_overrode_ai`
+   (computed via `_human_verdict_matches_ai_outcome`, comparing a human
+   ruling against whatever AI consensus had already concluded -- "no
+   prior AI verdict" always counts as an override, "human agrees with
+   AI" never does) plus two contract-wide counters
+   (`attempts_settled_by_ai_consensus` / `attempts_settled_by_human_override`)
+   incremented via `_record_settlement_provenance` at every real
+   settlement point, exposed via the new `get_settlement_transparency()`
+   view method. Makes "is this tier actually exceptional" a live,
+   queryable on-chain fact instead of a claim.
+6. **Tests**: 4 new tests, all verified passing --
+   `test_resolve_dispute_rejects_empty_resolution_note` and
+   `test_resolve_appeal_rejects_empty_resolution_note` (live StudioNet,
+   both hit transient 30/min rate limits on first attempt, passed clean
+   on retry -- not code bugs), plus two `gltest.direct` tests
+   (`test_human_override_flagged_and_counted_when_no_prior_ai_verdict_exists`,
+   `test_human_override_not_flagged_when_arbiter_agrees_with_ai_verdict`)
+   proving the override-flag logic deterministically and offline. Direct-
+   mode LLM/web mocking (`vm.mock_llm`/`vm.mock_web`) was attempted first
+   for a fuller AI-verdict-then-arbiter-agrees test but hit real plumbing
+   friction (`gl.nondet.exec_prompt` didn't route through the mock the
+   way a shallow read of the API suggested) -- rather than sink more time
+   into that, the "arbiter agrees with AI" case is tested via direct
+   storage manipulation (poking `attempt.last_verdict` before disputing,
+   documented inline as a deliberate isolation of the transparency-flag
+   logic from GenVM's nondet plumbing) instead of a full mocked
+   request_verification call.
+7. **New deliverables**: `docs/CONTRACT_REVIEW.md` (every major
+   invariant mapped to exact code + exact test), `.github/workflows/ci.yml`
+   (contract lint, offline direct-mode tests, frontend/backend
+   lint+typecheck+build, dependency audit -- live-StudioNet tests
+   deliberately excluded from CI, no signing keys committed to CI
+   secrets), `scripts/00-reviewer-verify.mjs` (single-command live
+   verification: deployed address, bytecode/source diff, critical reads,
+   settlement-transparency numbers). Running it right now correctly
+   reports the deployed contract does NOT yet match source (see
+   deployment-state table above) -- exactly the drift-detection it's
+   for.
+8. **NOT done in this pass** (honest, not silently skipped): exhaustive
+   adversarial fuzzing beyond what's listed in `docs/CONTRACT_REVIEW.md`'s
+   "Known gaps" section; a real-browser-wallet end-to-end test (MetaMax/
+   WalletConnect popup approval, captured screenshots) -- still not run;
+   CI does not execute the live-network test subset (would need real
+   signing keys in CI secrets, which this project doesn't do).
+
+**Standing next step**: none of this is live until the user redeploys.
+`genvm-lint` passes clean (33 methods, up from 32 -- the new
+`get_settlement_transparency` view). Once redeployed, rerun
+`scripts/00-reviewer-verify.mjs` to confirm the drift is gone, then the
+live StudioNet subset of `tests/integration` for full confirmation.

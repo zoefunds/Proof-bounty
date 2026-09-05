@@ -772,3 +772,172 @@ def test_resolve_appeal_rejects_non_owner(accounts):
         args=[0, 0, "REJECT", "I am the arbiter, not the owner", 0]
     ).transact(wait_transaction_status=TransactionStatus.FINALIZED)
     assert not tx_execution_succeeded(tx)
+
+
+# ============================================================================
+# Settlement transparency -- proves the human-ruling tier (arbiter + owner
+# appeal) cannot silently substitute its own verdict for AI consensus:
+# every human ruling requires written justification on-chain, and whether
+# it actually changed the economic outcome (vs merely confirming what AI
+# already decided) is recorded per-attempt and rolled up into a contract-
+# wide, always-queryable counter (`get_settlement_transparency`).
+# ============================================================================
+
+
+def test_resolve_dispute_rejects_empty_resolution_note(accounts):
+    treasury = accounts[1].address
+    arbiter_account = accounts[2]
+    arbiter = arbiter_account.address
+    challenger = accounts[3]
+    contract = _deploy(treasury)
+    _create_bounty(contract, arbiter, bond=0)
+    contract.connect(challenger).accept_bounty(args=[0]).transact(
+        value=0, wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    contract.connect(challenger).raise_dispute(args=[0, 0, "Disputing directly"]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED
+    )
+
+    tx = contract.connect(arbiter_account).resolve_dispute(
+        args=[0, 0, "APPROVE", "", 0]
+    ).transact(wait_transaction_status=TransactionStatus.FINALIZED)
+    assert not tx_execution_succeeded(tx), "a bare verdict with no written justification must be rejected"
+
+
+def test_resolve_appeal_rejects_empty_resolution_note(accounts):
+    treasury = accounts[1].address
+    arbiter_account = accounts[2]
+    arbiter = arbiter_account.address
+    challenger = accounts[3]
+    contract = _deploy(treasury)
+    _create_bounty(contract, arbiter, bond=0)
+    contract.connect(challenger).accept_bounty(args=[0]).transact(
+        value=0, wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    contract.connect(challenger).raise_dispute(args=[0, 0, "Disputing directly"]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    contract.connect(arbiter_account).resolve_dispute(args=[0, 0, "REJECT", "Arbiter rejects", 0]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    # Default signer (accounts[0]) is the deploying owner -- see the
+    # comment above test_resolve_appeal_rejects_non_owner.
+    contract.appeal_arbiter_resolution(args=[0, 0, "Appealing the rejection"]).transact(
+        value=0, wait_transaction_status=TransactionStatus.FINALIZED
+    )
+
+    tx = contract.resolve_appeal(args=[0, 0, "APPROVE", "", 0]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    assert not tx_execution_succeeded(tx), "a bare verdict with no written justification must be rejected"
+
+
+def test_human_override_flagged_and_counted_when_no_prior_ai_verdict_exists(direct_vm, direct_deploy, direct_accounts):
+    """
+    The sharpest, most direct proof that a human ruling cannot silently
+    stand in for AI consensus: this attempt is disputed and resolved by
+    the arbiter WITHOUT ever going through `request_verification` at all
+    (disputable straight from ACCEPTED -- see `_ATTEMPT_LIVE_STATES`). By
+    definition there is no AI verdict for the arbiter's ruling to agree
+    with, so `human_verdict_overrode_ai` must be True and the ruling must
+    land in `attempts_settled_by_human_override`, never
+    `attempts_settled_by_ai_consensus` -- a human deciding an attempt's
+    fate from scratch is exactly the case the transparency counters exist
+    to surface, not hide.
+
+    Runs via `gltest.direct` (deterministic, offline, real elapsed-time
+    control) since it needs to advance past the 2-day appeal window --
+    see the sibling test below for why `direct_vm.warp()` alone doesn't
+    do that for this contract and `gl.message_raw["datetime"]` is patched
+    directly instead.
+    """
+    import sys
+    import datetime as dt
+
+    treasury = direct_accounts[1]
+    arbiter = direct_accounts[2]
+    challenger = direct_accounts[3]
+    contract = direct_deploy("proof_bounty.py", treasury, 250)
+
+    direct_vm.value = 5 * 10**18
+    contract.create_bounty(
+        "Prove the docs contradiction", "The docs at X claim Y but the code does Z.",
+        "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter, ONE_HOUR, 0,
+    )
+    direct_vm.value = 0
+
+    with direct_vm.prank(challenger):
+        contract.accept_bounty(0)
+        contract.raise_dispute(0, 0, "Escalating before any AI verification -- I want the arbiter's direct read.")
+
+    before = contract.get_settlement_transparency()
+    assert before["attempts_settled_by_ai_consensus"] == 0
+    assert before["attempts_settled_by_human_override"] == 0
+
+    with direct_vm.prank(arbiter):
+        contract.resolve_dispute(0, 0, "APPROVE", "Reviewed manually and consider the claim substantiated.", 0)
+
+    attempt = contract.get_attempt(0, 0)
+    assert attempt["status_label"] == "ARBITER_RESOLVED_PENDING_APPEAL"
+    assert attempt["human_verdict_overrode_ai"] is True, "no prior AI verdict existed -- this MUST count as an override, not an agreement"
+
+    gl = sys.modules["genlayer.gl"]
+    future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=3)
+    gl.message_raw["datetime"] = future.isoformat().replace("+00:00", "Z")
+
+    contract.finalize_arbiter_resolution(0, 0)
+
+    attempt_final = contract.get_attempt(0, 0)
+    assert attempt_final["status_label"] == "WON"
+
+    after = contract.get_settlement_transparency()
+    assert after["attempts_settled_by_ai_consensus"] == 0, "AI never rendered a verdict on this attempt -- it must not be credited to AI"
+    assert after["attempts_settled_by_human_override"] == 1
+    assert after["total_settled_attempts"] == 1
+    assert after["human_override_rate_bps"] == 10_000, "100% of settled attempts so far went through a human override"
+
+
+def test_human_override_not_flagged_when_arbiter_agrees_with_ai_verdict(direct_vm, direct_deploy, direct_accounts):
+    """
+    The mirror-image proof: when a human ruling merely CONFIRMS what AI
+    consensus already concluded, that must be recorded as AI-driven, not
+    as a human override -- otherwise every routine, uncontested dispute
+    would inflate the override rate and make the human tier look far more
+    consequential than it actually is. Simulates the AI having already
+    reached REJECTED by writing directly to `attempt.last_verdict`/
+    `last_payout_bps` via the contract's own storage handle (available in
+    `gltest.direct` mode, not a network call) rather than mocking GenVM's
+    non-deterministic web/LLM primitives, which this test suite does not
+    attempt to mock (see the live-network `@pytest.mark.llm` tests for
+    genuine end-to-end AI-verdict coverage instead).
+    """
+    treasury = direct_accounts[1]
+    arbiter = direct_accounts[2]
+    challenger = direct_accounts[3]
+    contract = direct_deploy("proof_bounty.py", treasury, 250)
+
+    direct_vm.value = 5 * 10**18
+    contract.create_bounty(
+        "Prove the docs contradiction", "The docs at X claim Y but the code does Z.",
+        "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter, ONE_HOUR, 0,
+    )
+    direct_vm.value = 0
+
+    with direct_vm.prank(challenger):
+        contract.accept_bounty(0)
+
+    # Simulate an already-recorded AI REJECTED verdict directly on storage
+    # (the real path is `request_verification`; this test isolates the
+    # transparency-flag logic from GenVM's nondet plumbing on purpose).
+    attempt_obj = contract._instance.attempts[contract._instance._attempt_key(0, 0)]
+    attempt_obj.last_verdict = "REJECTED"
+    attempt_obj.status = 1  # ATTEMPT_SUBMITTED -- a live state, disputable
+
+    with direct_vm.prank(challenger):
+        contract.raise_dispute(0, 0, "I believe the AI was right to reject this, but want a second opinion for the record.")
+
+    with direct_vm.prank(arbiter):
+        contract.resolve_dispute(0, 0, "REJECT", "Reviewed independently and agree with the AI's REJECTED verdict.", 0)
+
+    attempt = contract.get_attempt(0, 0)
+    assert attempt["human_verdict_overrode_ai"] is False, "the arbiter's ruling matches the AI's own verdict -- this is agreement, not an override"
