@@ -146,29 +146,37 @@ product). The short version:
   top-level README's "How it works" section for what each one means and
   why `INSUFFICIENT_EVIDENCE` is a distinct outcome from both `REJECTED`
   and `NEEDS_REVISION`.
-- **Two-tier, appealable dispute resolution — no human has the final
-  word.** `resolve_dispute` (the named arbiter's ruling) never moves
-  money immediately — it opens an appeal window. `finalize_arbiter_resolution`
-  executes the ruling only once that window has closed unappealed.
-  `appeal_arbiter_resolution` + `resolve_appeal` (fully permissionless,
-  no owner or arbiter gate) form the second and final tier — and
-  `resolve_appeal` is itself a SECOND, independent round of GenLayer
+- **Two-tier, appealable dispute resolution — no human ever has the final
+  word, appealed or not.** `resolve_dispute` (the named arbiter's ruling)
+  never moves money at all — it opens an appeal window and the ruling it
+  records is purely advisory context from that point on.
+  `appeal_arbiter_resolution` lets either party escalate EARLY (posting a
+  bond) to `resolve_appeal` — a SECOND, independent round of GenLayer
   validator consensus (a real `gl.nondet.web.render` +
   `gl.eq_principle.prompt_comparative` re-evaluation), not a human's
-  personal judgment. This is what makes "appealable" structurally real:
+  personal judgment. But even if nobody appeals, `finalize_arbiter_resolution`
+  does **not** simply execute the arbiter's stored ruling once the window
+  closes — it runs that exact same second consensus round automatically
+  (`_settle_via_second_consensus`, the shared engine both methods use)
+  and settles on THAT fresh verdict instead. This is what makes "no human
+  final word" structurally real in every case, not just the appealed one:
   once GEN has actually left the contract there is nothing left to
-  appeal *to*, and the party escalating always gets a fresh consensus
-  review, never a more-trusted human's opinion. Critically, this tier
-  can **never** touch a reward AI consensus has already paid
-  (`ATTEMPT_WON` is excluded from `raise_dispute`'s live-state check),
-  every arbiter ruling requires non-empty written justification, and
-  whether an UNAPPEALED arbiter ruling actually changed the AI's outcome
-  (versus merely confirming it) is recorded per-attempt and rolled into
-  two contract-wide counters queryable via `get_settlement_transparency()`
-  — a `resolve_appeal` resolution always counts as AI-consensus-decided,
-  never as a human override. See `docs/CONTRACT_REVIEW.md` and the
-  contract's own "ARBITER TRUST MODEL AND THE APPEAL PATH" module
-  docstring section for the full mechanism.
+  appeal *to*, and whichever exit path an attempt takes off a dispute, it
+  always gets a fresh consensus review, never a human's opinion executed
+  directly. Critically, this tier can **never** touch a reward AI
+  consensus has already paid (`ATTEMPT_WON` is excluded from
+  `raise_dispute`'s live-state check), every arbiter ruling still
+  requires non-empty written justification even though it's advisory,
+  and whether an arbiter's ruling ever diverges from GenLayer consensus
+  is recorded per-attempt as an informational signal
+  (`Attempt.human_verdict_overrode_ai`) that no longer feeds either
+  transparency counter — `attempts_settled_by_ai_consensus` increments
+  unconditionally on every settlement, and
+  `attempts_settled_by_human_override` (retained for API/schema
+  continuity) is structurally guaranteed to always read zero, both
+  queryable via `get_settlement_transparency()`. See
+  `docs/CONTRACT_REVIEW.md` and the contract's own "ARBITER TRUST MODEL
+  AND THE APPEAL PATH" module docstring section for the full mechanism.
 - **Escrow safety**: every payout path reads the ledger, zeros it, persists
   state, and only then transfers value — structurally immune to
   double-spend regardless of call ordering, and correct even for

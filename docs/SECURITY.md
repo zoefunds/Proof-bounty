@@ -101,46 +101,54 @@ is live right now.
   fairness gap in the other direction: without it, a creator could reclaim
   the reward the instant the deadline passed even while a legitimately
   on-time-submitted attempt sat unverified.
-- **Arbiter trust / appeal path — no human has the final word.**
-  `resolve_dispute` no longer pays out immediately — it opens a 2-day
-  appeal window (`ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL`) before the
-  verdict executes. Either party may post an appeal bond to escalate to
-  `resolve_appeal` before the window closes — a SECOND, independent
-  round of GenLayer validator consensus, not a protocol owner's personal
-  ruling. `resolve_appeal` re-fetches the live evidence itself and
-  reaches its own verdict via `gl.eq_principle.prompt_comparative`,
-  shown the arbiter's ruling and reasoning only as context. If neither
-  party appeals, anyone may permissionlessly `finalize_arbiter_resolution`
-  afterward, executing the arbiter's ruling as-is. An earlier revision of
-  this contract routed the final appeal tier through the protocol owner
-  directly (`resolve_appeal` was owner-gated); that was replaced
-  specifically because a human backstop — however disclosed — undercut
-  the claim that GenLayer consensus is what ultimately produces a fair
-  payout. This is deliberately NOT a full staked multi-arbiter
-  marketplace with slashing/voting for the FIRST-pass arbiter selection
-  itself — that's a legitimately larger protocol redesign — but the
-  arbiter is never the last word: appealing always escalates to GenLayer
-  consensus, never to a more-trusted human. The owner retains only
-  non-monetary admin functions (fee, treasury, pause) and can never move
-  a single bounty's escrowed funds.
+- **Arbiter trust / appeal path — no human ever has the final word, appealed
+  or not.** `resolve_dispute` never pays out — it opens a 2-day appeal
+  window (`ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL`) and the ruling it
+  records is purely advisory from that point on. Either party may post an
+  appeal bond to escalate EARLY to `resolve_appeal` before the window
+  closes — a SECOND, independent round of GenLayer validator consensus,
+  never a protocol owner's or arbiter's personal ruling. But even if
+  NEITHER party appeals, the arbiter's ruling is still never executed
+  as-is: once the window closes, anyone may permissionlessly call
+  `finalize_arbiter_resolution`, which runs that exact same second
+  consensus round automatically (`_settle_via_second_consensus`, the
+  shared engine both methods use) and settles on THAT fresh verdict — the
+  arbiter's ruling and reasoning are shown to the model only as context,
+  in both cases. Two revisions of this contract have now closed
+  successive gaps in this same direction: an earlier one routed the final
+  appeal tier through the protocol owner directly (`resolve_appeal` was
+  owner-gated); a later one still let an unappealed arbiter ruling settle
+  a payout directly via `finalize_arbiter_resolution`. Both were replaced
+  specifically because any human backstop — however disclosed, however
+  narrow — undercut the claim that GenLayer consensus is what ultimately
+  produces a fair payout. This is deliberately NOT a full staked
+  multi-arbiter marketplace with slashing/voting for the FIRST-pass
+  arbiter selection itself — that's a legitimately larger protocol
+  redesign — but the arbiter is now never a settlement authority at all:
+  every disputed payout, appealed or not, is decided by GenLayer
+  consensus. The owner retains only non-monetary admin functions (fee,
+  treasury, pause) and can never move a single bounty's escrowed funds.
 - **This tier is bounded, not routine — four independent, verifiable
   guarantees.** (1) It can never touch a reward AI consensus has already
   paid: `ATTEMPT_WON` is excluded from `raise_dispute`'s live-state
   check, so no method on this contract can reopen a completed AI-driven
-  settlement. (2) An arbiter's ruling never has the final word: appealing
-  it always escalates to GenLayer consensus, never a human's judgment.
-  (3) Every arbiter ruling requires non-empty, on-chain written
-  justification (`resolve_dispute` rejects an empty `resolution_note`).
-  (4) Whether an UNAPPEALED arbiter ruling actually changed the outcome
-  versus merely confirming AI's own conclusion is computed per-attempt
-  (`Attempt.human_verdict_overrode_ai`) and rolled into two contract-wide
-  counters, queryable via `get_settlement_transparency()` — a
-  `resolve_appeal` resolution always counts toward the AI-consensus
-  counter, never the human-override one, since GenLayer consensus (not a
-  human) decided it. The real, remaining trust boundary — a human ruling
-  standing only because nobody exercised their right to appeal it — is a
-  live on-chain fact, not a claim. See `contracts/proof_bounty.py`'s
-  module docstring ("ARBITER TRUST MODEL AND THE APPEAL PATH") and
+  settlement. (2) An arbiter's ruling never has the final word, appealed
+  or not: both exits off a disputed attempt always run a fresh GenLayer
+  consensus round, never executing a human's ruling directly. (3) Every
+  arbiter ruling still requires non-empty, on-chain written justification
+  (`resolve_dispute` rejects an empty `resolution_note`), even though
+  that ruling is advisory. (4) Whether an arbiter's ruling ever diverges
+  from GenLayer consensus is computed per-attempt
+  (`Attempt.human_verdict_overrode_ai`) purely as an informational
+  signal — it no longer feeds either transparency counter, since
+  `attempts_settled_by_ai_consensus` now increments unconditionally on
+  every settlement and `attempts_settled_by_human_override` is
+  structurally guaranteed to always read zero (retained only for
+  API/schema continuity), queryable via `get_settlement_transparency()`.
+  There is no longer a "remaining trust boundary" where a human ruling
+  can stand unchecked — that is now a live on-chain, structurally
+  enforced fact, not a claim. See `contracts/proof_bounty.py`'s module
+  docstring ("ARBITER TRUST MODEL AND THE APPEAL PATH") and
   `docs/CONTRACT_REVIEW.md` for the exact code and tests behind each
   guarantee.
 

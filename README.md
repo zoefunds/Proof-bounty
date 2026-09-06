@@ -39,39 +39,41 @@ not decorative:
   section, and every step of it is exercised by a real transaction in
   `scripts/` and asserted on in `tests/integration/`.
 
-**The one deliberate exception, sharply bounded, appealable to GenLayer
-itself, never to a human:** either party may dispute a verdict to the
-bounty's named arbiter. That ruling never moves money immediately and
-never has the final word — either party may appeal it to a SECOND,
-independent round of GenLayer validator consensus
-(`resolve_appeal`, fully permissionless), which re-fetches the live
-evidence and reaches its own verdict, with the arbiter's ruling shown
-only as context, never as something it's bound by. **No human — not the
-arbiter, not the protocol owner, not anyone — ever makes the final,
-binding call on a disputed payout in this contract.** The only way a
-human ruling ever determines an outcome is if neither party chooses to
-exercise their available right to that fresh consensus review — and this
-tier can **never** touch a reward AI consensus has already paid in the
-first place: `ATTEMPT_WON` is structurally excluded from
-`raise_dispute`'s live-state check, so there is no method on this
+**The one deliberate exception, sharply bounded, always resolved by
+GenLayer itself, never by a human:** either party may dispute a verdict
+to the bounty's named arbiter. That ruling never moves money — full
+stop, not just "not immediately." Either party may appeal it early to a
+SECOND, independent round of GenLayer validator consensus
+(`resolve_appeal`, fully permissionless). But even if NOBODY appeals,
+the arbiter's ruling is still never executed as-is: once the appeal
+window closes, anyone may permissionlessly call
+`finalize_arbiter_resolution`, which runs that exact same second
+consensus round automatically (`_settle_via_second_consensus`, the
+shared engine both methods use) and settles on THAT fresh verdict — the
+arbiter's ruling is shown to the model only as context, in both cases.
+**No human — not the arbiter, not the protocol owner, not anyone — ever
+makes the final, binding call on a disputed payout in this contract, and
+that is now true unconditionally, not only when someone chooses to
+appeal.** This tier can **never** touch a reward AI consensus has
+already paid in the first place: `ATTEMPT_WON` is structurally excluded
+from `raise_dispute`'s live-state check, so there is no method on this
 contract that can reopen a completed AI-driven settlement. Every arbiter
-ruling requires non-empty, on-chain written justification, and whether
-an UNAPPEALED arbiter ruling actually changed the outcome (versus merely
-confirming what AI consensus already concluded) is recorded per-attempt
-and rolled into two contract-wide, always-queryable counters —
-`get_settlement_transparency()` — so exactly how often a human's word
-(rather than fresh GenLayer consensus) ends up determining a payout is a
-live on-chain fact, not a claim anyone has to take on faith. See
-`contracts/proof_bounty.py`'s "ARBITER TRUST MODEL AND THE APPEAL PATH"
-section and [`docs/CONTRACT_REVIEW.md`](docs/CONTRACT_REVIEW.md) for the
-full mechanism and the exact code/tests that prove each part of it. A
-staked, multi-arbiter marketplace with slashing for the first-pass
-arbiter selection itself would push this further toward full
-decentralization; that is a materially larger protocol redesign,
-documented as an intentional scope boundary, not silently left
-unaddressed. What this contract does guarantee is that the arbiter is
-never the last word — appealing always escalates to GenLayer consensus,
-not to a more-trusted human.
+ruling still requires non-empty, on-chain written justification, and
+`get_settlement_transparency()` exposes `attempts_settled_by_human_override`
+— retained for API continuity, and structurally guaranteed to always
+read zero, since no code path can increment it anymore — alongside
+`attempts_settled_by_ai_consensus`, which every settled attempt now
+counts toward. See `contracts/proof_bounty.py`'s "ARBITER TRUST MODEL AND
+THE APPEAL PATH" section and
+[`docs/CONTRACT_REVIEW.md`](docs/CONTRACT_REVIEW.md) for the full
+mechanism and the exact code/tests that prove each part of it. A staked,
+multi-arbiter marketplace with slashing for the first-pass arbiter
+selection itself would push this further toward full decentralization;
+that is a materially larger protocol redesign, documented as an
+intentional scope boundary, not silently left unaddressed. What this
+contract does guarantee is that the arbiter is never a settlement
+authority at all, appealed or not — only ever advisory context for a
+mandatory GenLayer consensus check.
 
 See [`memory/MEMORY.md`](memory/MEMORY.md) for the full build history, every
 architecture decision, and every audit round this project has been through
@@ -81,10 +83,10 @@ architecture decision, and every audit round this project has been through
 
 | Piece | State |
 |---|---|
-| Intelligent Contract (`contracts/proof_bounty.py`, 2,535 lines, 33 public methods) | ✅ Deployed live on StudioNet, deployed bytecode confirmed matching source via `genlayer code` |
+| Intelligent Contract (`contracts/proof_bounty.py`, 2,820 lines, 33 public methods) | ✅ Deployed live on StudioNet, deployed bytecode confirmed matching source via `genlayer code` |
 | Frontend (`apps/web`, Next.js 15 App Router) | ✅ Deployed — [proof-bounty.vercel.app](https://proof-bounty.vercel.app) |
 | Backend indexer/API (`apps/api`, Fastify + Postgres) | ✅ Deployed — [proofbounty-api.fly.dev](https://proofbounty-api.fly.dev) |
-| Automated test suite (`tests/integration/`, pytest/`gltest`) | ✅ 34 tests — 33 pass deterministically, 1 depends on live LLM output |
+| Automated test suite (`tests/integration/`, pytest/`gltest`) | ✅ 34 tests — 32 pass deterministically offline, 2 depend on live web fetch + LLM output (`request_verification` full lifecycle, and `resolve_appeal`'s GenLayer-consensus resolution) |
 | Manual live-chain verification scripts (`scripts/`) | ✅ 14 scripts (`00`–`13`), all run against live StudioNet with realistic content |
 | CI (`.github/workflows/ci.yml`) | ✅ Contract lint, offline test subset, frontend/backend lint+typecheck+build, dependency audit on every push |
 | Notifications | ✅ Built — per-recipient, polling-based (not push/email/webhook) |
@@ -92,7 +94,7 @@ architecture decision, and every audit round this project has been through
 | Arbiter/appeal override transparency | ✅ Built — `get_settlement_transparency()`; bounded structurally (can never touch an already-paid AI settlement) |
 | End-to-end test with a real, unmanaged browser wallet (MetaMask etc.) | ⏳ Not yet run |
 
-**Live contract address:** `0x330Ac647fb4001d557B1De3692c454142e440079` (GenLayer StudioNet, deployed 2026-09-05 — the 6th deployment of this project; see `memory/MEMORY.md` for why the first five were retired)
+**Live contract address:** `0x5EfaD781bf95e075B6b52E852D3815315b639637` (GenLayer StudioNet, deployed 2026-09-06 — the 8th deployment of this project; see `memory/MEMORY.md` for why the first seven were retired)
 
 ## How it works
 
@@ -141,29 +143,32 @@ architecture decision, and every audit round this project has been through
      challenger's fault the way a demonstrably-wrong submission is.
 6. **Either party may dispute** a verdict before it becomes final
    (`raise_dispute`). The bounty's named arbiter reviews and rules
-   (`resolve_dispute`) — but that ruling does **not** move money
-   immediately. It opens a 2-day appeal window
+   (`resolve_dispute`) — but that ruling does **not** move money at all,
+   ever. It opens a 2-day appeal window
    (`ARBITER_RESOLVED_PENDING_APPEAL`).
-7. **Either party may appeal** the arbiter's ruling within that window by
-   posting a bond equal to the original challenger bond
-   (`appeal_arbiter_resolution`), escalating to `APPEALED`. If nobody
-   appeals, anyone may permissionlessly finalize the arbiter's ruling once
-   the window closes (`finalize_arbiter_resolution`) — actually paying out
-   at that point, since only then is there truly nothing left to appeal
-   to.
-8. **On appeal, a second, independent round of GenLayer validator
-   consensus makes the final call** (`resolve_appeal`, permissionless —
-   anyone may trigger it) — the contract's second and last resolution
-   tier, and not a human one. It re-fetches the live evidence itself and
-   reaches its own verdict, shown the arbiter's ruling and reasoning only
-   as context. The appeal bond is returned to whichever side this fresh
-   consensus's conclusion actually vindicates (computed automatically
-   from whether its verdict/payout differs from the arbiter's pending
-   one — never a human declaring "uphold/overturn" themselves).
+7. **Either party may appeal early** by posting a bond equal to the
+   original challenger bond (`appeal_arbiter_resolution`), escalating to
+   `APPEALED`. If nobody appeals, anyone may permissionlessly call
+   `finalize_arbiter_resolution` once the window closes instead — which
+   does **not** just execute the arbiter's ruling.
+8. **Either way, a second, independent round of GenLayer validator
+   consensus makes the final call** (`resolve_appeal` for an explicit
+   appeal, or `finalize_arbiter_resolution` automatically once the window
+   closes — both run the same shared engine,
+   `_settle_via_second_consensus`) — the contract's second and last
+   resolution tier, and never a human one. It re-fetches the live
+   evidence itself and reaches its own verdict, shown the arbiter's
+   ruling and reasoning only as context, never as something it's bound
+   by. An appeal bond, if one was posted, is returned to whichever side
+   this fresh consensus's conclusion actually vindicates (computed
+   automatically from whether its verdict/payout differs from the
+   arbiter's pending one — never a human declaring "uphold/overturn"
+   themselves).
 
-Every settlement path — direct AI verdict, arbiter default resolution,
-finalized (unappealed) arbiter ruling, or the second-round consensus
-appeal resolution — runs through the same two shared primitives
+Every settlement path — direct AI verdict, the safe default refund when
+an arbiter goes silent (`force_default_resolution`), or either exit from
+a disputed attempt (appealed or the window simply closing, both GenLayer-
+consensus-decided) — runs through the same two shared primitives
 (`_settle_reward_to_winner`, `_forfeit_attempt_bond`,
 `_refund_attempt_bond`), each following a strict **read the ledger, zero
 it, persist the new status, only then transfer GEN** order, so no code path

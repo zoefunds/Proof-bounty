@@ -450,9 +450,11 @@ def test_admin_set_paused_blocks_create_bounty(accounts):
 def test_request_verification_full_lifecycle(accounts):
     """
     Full happy path against a real, publicly reachable evidence URL. This
-    is intentionally the ONLY test in this file that depends on live web
-    fetch + live LLM consensus -- everything else is validated without it
-    so the fast majority of this suite can run in any environment.
+    is one of only two tests in this file that depend on live web fetch +
+    live LLM consensus (see also
+    `test_resolve_appeal_is_decided_by_genlayer_consensus_not_a_human`)
+    -- everything else is validated without it so the fast majority of
+    this suite can run in any environment.
     """
     treasury = accounts[1].address
     arbiter = accounts[2].address
@@ -599,12 +601,29 @@ def test_zero_bond_reclaim_after_settlement_is_a_safe_noop(direct_vm, direct_dep
     (see contracts/proof_bounty.py's `_now`) -- so `gl.message_raw` is
     patched directly instead, which a throwaway probe confirmed works.
 
+    Since the GenLayer-fit redesign, `finalize_arbiter_resolution` no
+    longer just executes the arbiter's stored verdict -- it runs its own
+    fresh, independent GenLayer consensus round
+    (`_settle_via_second_consensus`), so this test now mocks that
+    round's web fetch + LLM response (`direct_vm.mock_web`/`mock_llm`) to
+    reach the same deterministic settlement. The mocked LLM response is
+    wrapped in markdown code fences deliberately: `gltest.direct`'s mock
+    harness auto-parses any JSON-looking string into a dict before the
+    contract ever sees it, which breaks this contract's own
+    `raw_response.replace("```json", "")...` parsing (confirmed via a
+    throwaway probe -- a bare JSON string mock raises `AttributeError:
+    'dict' object has no attribute 'replace'`); fencing it defeats that
+    premature auto-parse the same way a real LLM's markdown-wrapped
+    output would.
+
     Full path: arbiter APPROVEs attempt 0 -> ARBITER_RESOLVED_PENDING_APPEAL
-    -> (time warp past appeal_deadline) -> finalize_arbiter_resolution
-    actually pays out attempt 0 (WON) and marks attempt 1 LOST_RACE ->
-    reclaiming attempt 1's zero bond actually succeeds as a no-op.
+    -> (time warp past appeal_deadline) -> finalize_arbiter_resolution's
+    fresh consensus round agrees (APPROVED) and actually pays out
+    attempt 0 (WON) and marks attempt 1 LOST_RACE -> reclaiming attempt
+    1's zero bond actually succeeds as a no-op.
     """
     import sys
+    import json
     import datetime as dt
 
     treasury = direct_accounts[1]
@@ -641,10 +660,21 @@ def test_zero_bond_reclaim_after_settlement_is_a_safe_noop(direct_vm, direct_dep
     future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=3)
     gl.message_raw["datetime"] = future.isoformat().replace("+00:00", "Z")
 
+    direct_vm.mock_web(r".*", {"status": 200, "body": "Mocked evidence page content."})
+    direct_vm.mock_llm(
+        r".*",
+        "```json\n" + json.dumps({
+            "verdict": "APPROVED", "reasoning": "Fresh consensus agrees with the arbiter.", "payout_bps": 0,
+        }) + "\n```",
+    )
+
     contract.finalize_arbiter_resolution(0, 0)
 
     attempt0_final = contract.get_attempt(0, 0)
     assert attempt0_final["status_label"] == "WON", "attempt 0 actually settled after the appeal window closed"
+    assert attempt0_final["pending_arbiter_verdict"] == "APPROVED", (
+        "overwritten with the FRESH consensus verdict, not the arbiter's original 'APPROVE'"
+    )
 
     attempt1_final = contract.get_attempt(0, 1)
     assert attempt1_final["status_label"] == "LOST_RACE", "attempt 1 auto-marked LOST_RACE by the real settlement"
@@ -807,26 +837,39 @@ def test_resolve_dispute_rejects_empty_resolution_note(accounts):
     assert not tx_execution_succeeded(tx), "a bare verdict with no written justification must be rejected"
 
 
-def test_human_override_flagged_and_counted_when_no_prior_ai_verdict_exists(direct_vm, direct_deploy, direct_accounts):
+def test_finalize_never_trusts_arbiter_even_when_unappealed_and_no_prior_ai_verdict(
+    direct_vm, direct_deploy, direct_accounts
+):
     """
-    The sharpest, most direct proof that a human ruling cannot silently
-    stand in for AI consensus: this attempt is disputed and resolved by
-    the arbiter WITHOUT ever going through `request_verification` at all
-    (disputable straight from ACCEPTED -- see `_ATTEMPT_LIVE_STATES`). By
-    definition there is no AI verdict for the arbiter's ruling to agree
-    with, so `human_verdict_overrode_ai` must be True and the ruling must
-    land in `attempts_settled_by_human_override`, never
-    `attempts_settled_by_ai_consensus` -- a human deciding an attempt's
-    fate from scratch is exactly the case the transparency counters exist
-    to surface, not hide.
+    The sharpest, most direct proof that an arbiter's ruling cannot
+    silently stand in for GenLayer consensus, even in the single most
+    favorable case for a human backstop: this attempt is disputed and
+    resolved by the arbiter WITHOUT ever going through
+    `request_verification` first (disputable straight from ACCEPTED --
+    see `_ATTEMPT_LIVE_STATES`), the arbiter rules APPROVE, and NOBODY
+    appeals. If the arbiter's ruling were ever a real settlement
+    authority, this is exactly the case where it would matter most.
+
+    Instead, `finalize_arbiter_resolution` runs its own fresh,
+    independent GenLayer consensus round (`_settle_via_second_consensus`)
+    regardless -- mocked here to disagree with the arbiter (REJECTED
+    instead of APPROVE) specifically to prove the fresh verdict, not the
+    arbiter's, is what actually settles the attempt. `human_verdict_
+    overrode_ai` still correctly records True (informational: no prior AI
+    verdict existed for the arbiter to agree with), but that flag no
+    longer feeds either transparency counter -- `attempts_settled_by_
+    human_override` is asserted to stay at zero, structurally, even here.
 
     Runs via `gltest.direct` (deterministic, offline, real elapsed-time
     control) since it needs to advance past the 2-day appeal window --
-    see the sibling test below for why `direct_vm.warp()` alone doesn't
+    see the sibling test above for why `direct_vm.warp()` alone doesn't
     do that for this contract and `gl.message_raw["datetime"]` is patched
-    directly instead.
+    directly instead, and for why the mocked LLM response is wrapped in
+    markdown code fences (defeats `gltest.direct`'s premature JSON
+    auto-parse of the mock response).
     """
     import sys
+    import json
     import datetime as dt
 
     treasury = direct_accounts[1]
@@ -854,22 +897,50 @@ def test_human_override_flagged_and_counted_when_no_prior_ai_verdict_exists(dire
 
     attempt = contract.get_attempt(0, 0)
     assert attempt["status_label"] == "ARBITER_RESOLVED_PENDING_APPEAL"
-    assert attempt["human_verdict_overrode_ai"] is True, "no prior AI verdict existed -- this MUST count as an override, not an agreement"
+    assert attempt["pending_arbiter_verdict"] == "APPROVE"
+    assert attempt["human_verdict_overrode_ai"] is True, (
+        "no prior AI verdict existed -- this divergence flag still correctly records True, "
+        "informationally, even though it no longer determines a settlement counter"
+    )
 
     gl = sys.modules["genlayer.gl"]
     future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=3)
     gl.message_raw["datetime"] = future.isoformat().replace("+00:00", "Z")
 
+    # Deliberately mock the fresh consensus round to DISAGREE with the
+    # arbiter's APPROVE -- the strongest possible proof that finalizing
+    # does not just execute the stored ruling.
+    direct_vm.mock_web(r".*", {"status": 200, "body": "Mocked evidence page content."})
+    direct_vm.mock_llm(
+        r".*",
+        "```json\n" + json.dumps({
+            "verdict": "REJECTED",
+            "reasoning": "Fresh independent consensus disagrees with the arbiter's APPROVE.",
+            "payout_bps": 0,
+        }) + "\n```",
+    )
+
     contract.finalize_arbiter_resolution(0, 0)
 
     attempt_final = contract.get_attempt(0, 0)
-    assert attempt_final["status_label"] == "WON"
+    assert attempt_final["status_label"] == "BOND_FORFEITED", (
+        "the FRESH consensus verdict (REJECTED) settled this attempt, not the arbiter's stored APPROVE -- "
+        "direct proof the arbiter is advisory context only, never a settlement authority "
+        "(REJECTED forfeits immediately at this tier, unlike the primary path's separate claim_bond_forfeiture step)"
+    )
+    assert attempt_final["pending_arbiter_verdict"] == "REJECTED", (
+        "overwritten with the fresh consensus verdict, not left as the arbiter's original 'APPROVE'"
+    )
 
     after = contract.get_settlement_transparency()
-    assert after["attempts_settled_by_ai_consensus"] == 0, "AI never rendered a verdict on this attempt -- it must not be credited to AI"
-    assert after["attempts_settled_by_human_override"] == 1
+    assert after["attempts_settled_by_ai_consensus"] == 1, (
+        "GenLayer consensus decided this outcome, even though an arbiter ruling existed on this attempt's history"
+    )
+    assert after["attempts_settled_by_human_override"] == 0, (
+        "structurally guaranteed zero -- no code path increments this counter anymore"
+    )
     assert after["total_settled_attempts"] == 1
-    assert after["human_override_rate_bps"] == 10_000, "100% of settled attempts so far went through a human override"
+    assert after["human_override_rate_bps"] == 0
 
 
 def test_human_override_not_flagged_when_arbiter_agrees_with_ai_verdict(direct_vm, direct_deploy, direct_accounts):

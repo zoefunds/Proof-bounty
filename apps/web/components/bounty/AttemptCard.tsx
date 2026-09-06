@@ -283,7 +283,7 @@ export function AttemptCard({
           <p className="font-mono-data text-[10px] text-on-surface-variant">
             {appealWindowOpen
               ? `Appeal window open until ${formatTimestamp(attempt.appeal_deadline)}`
-              : "Appeal window closed — anyone can finalize this resolution now."}
+              : "Appeal window closed — anyone can trigger the final GenLayer consensus check now."}
           </p>
         </div>
       )}
@@ -503,7 +503,9 @@ function ArbiterResolutionForm({
         onChange={(e) => setPartialPercent(e.target.value)}
       />
       <p className="font-body text-[11px] text-on-surface-variant">
-        This ruling opens a 2-day appeal window before it pays out — either party can appeal it.
+        This ruling never pays out directly — it opens a 2-day window during which either party can
+        appeal it. Even if nobody appeals, a second independent round of GenLayer consensus decides
+        the actual outcome once the window closes; your ruling is shown to it only as context.
       </p>
       <TxStateBanner state={resolveTx.state} txHash={resolveTx.txHash} errorMessage={resolveTx.errorMessage} />
       <div className="flex gap-2">
