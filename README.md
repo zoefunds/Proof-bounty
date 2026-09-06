@@ -39,26 +39,39 @@ not decorative:
   section, and every step of it is exercised by a real transaction in
   `scripts/` and asserted on in `tests/integration/`.
 
-**The one deliberate exception, sharply bounded, not routine:** either
-party may dispute a verdict to the bounty's named arbiter, escalatable to
-the protocol owner on appeal. This tier can **never** touch a reward AI
-consensus has already paid — `ATTEMPT_WON` is structurally excluded from
+**The one deliberate exception, sharply bounded, appealable to GenLayer
+itself, never to a human:** either party may dispute a verdict to the
+bounty's named arbiter. That ruling never moves money immediately and
+never has the final word — either party may appeal it to a SECOND,
+independent round of GenLayer validator consensus
+(`resolve_appeal`, fully permissionless), which re-fetches the live
+evidence and reaches its own verdict, with the arbiter's ruling shown
+only as context, never as something it's bound by. **No human — not the
+arbiter, not the protocol owner, not anyone — ever makes the final,
+binding call on a disputed payout in this contract.** The only way a
+human ruling ever determines an outcome is if neither party chooses to
+exercise their available right to that fresh consensus review — and this
+tier can **never** touch a reward AI consensus has already paid in the
+first place: `ATTEMPT_WON` is structurally excluded from
 `raise_dispute`'s live-state check, so there is no method on this
-contract that can reopen a completed AI-driven settlement. Every human
-ruling requires non-empty, on-chain written justification, and whether a
-ruling actually changed the outcome (versus merely confirming what AI
-consensus already concluded) is recorded per-attempt and rolled into two
-contract-wide, always-queryable counters —
-`get_settlement_transparency()` — so whether this tier is genuinely
-exceptional or is quietly doing most of the work is a live on-chain fact,
-not a claim anyone has to take on faith. See `contracts/proof_bounty.py`'s
-"ARBITER TRUST MODEL AND THE APPEAL PATH" section and
-[`docs/CONTRACT_REVIEW.md`](docs/CONTRACT_REVIEW.md) for the full
-mechanism and the exact code/tests that prove each part of it. A staked,
-multi-arbiter marketplace with slashing would push this further toward
-full decentralization; that is a materially larger protocol redesign,
+contract that can reopen a completed AI-driven settlement. Every arbiter
+ruling requires non-empty, on-chain written justification, and whether
+an UNAPPEALED arbiter ruling actually changed the outcome (versus merely
+confirming what AI consensus already concluded) is recorded per-attempt
+and rolled into two contract-wide, always-queryable counters —
+`get_settlement_transparency()` — so exactly how often a human's word
+(rather than fresh GenLayer consensus) ends up determining a payout is a
+live on-chain fact, not a claim anyone has to take on faith. See
+`contracts/proof_bounty.py`'s "ARBITER TRUST MODEL AND THE APPEAL PATH"
+section and [`docs/CONTRACT_REVIEW.md`](docs/CONTRACT_REVIEW.md) for the
+full mechanism and the exact code/tests that prove each part of it. A
+staked, multi-arbiter marketplace with slashing for the first-pass
+arbiter selection itself would push this further toward full
+decentralization; that is a materially larger protocol redesign,
 documented as an intentional scope boundary, not silently left
-unaddressed.
+unaddressed. What this contract does guarantee is that the arbiter is
+never the last word — appealing always escalates to GenLayer consensus,
+not to a more-trusted human.
 
 See [`memory/MEMORY.md`](memory/MEMORY.md) for the full build history, every
 architecture decision, and every audit round this project has been through
@@ -138,17 +151,20 @@ architecture decision, and every audit round this project has been through
    the window closes (`finalize_arbiter_resolution`) — actually paying out
    at that point, since only then is there truly nothing left to appeal
    to.
-8. **On appeal, the protocol owner makes the final call**
-   (`resolve_appeal`) — the contract's second and last resolution tier.
-   The appeal bond is returned to whichever side's position the owner's
-   ruling actually vindicates (computed automatically from whether the
-   final verdict/payout differs from the arbiter's pending one — never a
-   separate "uphold/overturn" flag the owner could set inconsistently
-   with the real numbers).
+8. **On appeal, a second, independent round of GenLayer validator
+   consensus makes the final call** (`resolve_appeal`, permissionless —
+   anyone may trigger it) — the contract's second and last resolution
+   tier, and not a human one. It re-fetches the live evidence itself and
+   reaches its own verdict, shown the arbiter's ruling and reasoning only
+   as context. The appeal bond is returned to whichever side this fresh
+   consensus's conclusion actually vindicates (computed automatically
+   from whether its verdict/payout differs from the arbiter's pending
+   one — never a human declaring "uphold/overturn" themselves).
 
 Every settlement path — direct AI verdict, arbiter default resolution,
-finalized arbiter ruling, or owner appeal ruling — runs through the same
-two shared primitives (`_settle_reward_to_winner`, `_forfeit_attempt_bond`,
+finalized (unappealed) arbiter ruling, or the second-round consensus
+appeal resolution — runs through the same two shared primitives
+(`_settle_reward_to_winner`, `_forfeit_attempt_bond`,
 `_refund_attempt_bond`), each following a strict **read the ledger, zero
 it, persist the new status, only then transfer GEN** order, so no code path
 can double-pay or leave an attempt in a state where it owes money nobody

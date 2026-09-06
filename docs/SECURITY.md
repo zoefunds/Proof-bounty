@@ -101,32 +101,48 @@ is live right now.
   fairness gap in the other direction: without it, a creator could reclaim
   the reward the instant the deadline passed even while a legitimately
   on-time-submitted attempt sat unverified.
-- **Arbiter trust / appeal path.** `resolve_dispute` no longer pays out
-  immediately — it opens a 2-day appeal window
-  (`ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL`) before the verdict executes.
-  Either party may post an appeal bond to escalate to the protocol owner's
-  final ruling (`resolve_appeal`) before the window closes; otherwise
-  anyone may permissionlessly `finalize_arbiter_resolution` afterward.
-  This is deliberately NOT a full staked multi-arbiter marketplace with
-  slashing/voting — that's a legitimately larger protocol redesign. The
-  owner is already the sole trusted party for every other admin function
-  in this contract (fee/treasury/pause); extending that same, disclosed
-  trust boundary to be the appeal backstop is a smaller and more honest
-  surface than inventing a new unstaked authority for this one purpose.
-- **This tier is bounded, not routine — three independent, verifiable
+- **Arbiter trust / appeal path — no human has the final word.**
+  `resolve_dispute` no longer pays out immediately — it opens a 2-day
+  appeal window (`ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL`) before the
+  verdict executes. Either party may post an appeal bond to escalate to
+  `resolve_appeal` before the window closes — a SECOND, independent
+  round of GenLayer validator consensus, not a protocol owner's personal
+  ruling. `resolve_appeal` re-fetches the live evidence itself and
+  reaches its own verdict via `gl.eq_principle.prompt_comparative`,
+  shown the arbiter's ruling and reasoning only as context. If neither
+  party appeals, anyone may permissionlessly `finalize_arbiter_resolution`
+  afterward, executing the arbiter's ruling as-is. An earlier revision of
+  this contract routed the final appeal tier through the protocol owner
+  directly (`resolve_appeal` was owner-gated); that was replaced
+  specifically because a human backstop — however disclosed — undercut
+  the claim that GenLayer consensus is what ultimately produces a fair
+  payout. This is deliberately NOT a full staked multi-arbiter
+  marketplace with slashing/voting for the FIRST-pass arbiter selection
+  itself — that's a legitimately larger protocol redesign — but the
+  arbiter is never the last word: appealing always escalates to GenLayer
+  consensus, never to a more-trusted human. The owner retains only
+  non-monetary admin functions (fee, treasury, pause) and can never move
+  a single bounty's escrowed funds.
+- **This tier is bounded, not routine — four independent, verifiable
   guarantees.** (1) It can never touch a reward AI consensus has already
   paid: `ATTEMPT_WON` is excluded from `raise_dispute`'s live-state
   check, so no method on this contract can reopen a completed AI-driven
-  settlement. (2) Every human ruling requires non-empty, on-chain written
-  justification (`resolve_dispute`/`resolve_appeal` both reject an empty
-  `resolution_note`). (3) Whether a ruling actually changed the outcome
+  settlement. (2) An arbiter's ruling never has the final word: appealing
+  it always escalates to GenLayer consensus, never a human's judgment.
+  (3) Every arbiter ruling requires non-empty, on-chain written
+  justification (`resolve_dispute` rejects an empty `resolution_note`).
+  (4) Whether an UNAPPEALED arbiter ruling actually changed the outcome
   versus merely confirming AI's own conclusion is computed per-attempt
   (`Attempt.human_verdict_overrode_ai`) and rolled into two contract-wide
-  counters, queryable via `get_settlement_transparency()` — the real
-  override rate is a live on-chain fact, not a claim. See
-  `contracts/proof_bounty.py`'s module docstring ("ARBITER TRUST MODEL
-  AND THE APPEAL PATH") and `docs/CONTRACT_REVIEW.md` for the exact code
-  and tests behind each guarantee.
+  counters, queryable via `get_settlement_transparency()` — a
+  `resolve_appeal` resolution always counts toward the AI-consensus
+  counter, never the human-override one, since GenLayer consensus (not a
+  human) decided it. The real, remaining trust boundary — a human ruling
+  standing only because nobody exercised their right to appeal it — is a
+  live on-chain fact, not a claim. See `contracts/proof_bounty.py`'s
+  module docstring ("ARBITER TRUST MODEL AND THE APPEAL PATH") and
+  `docs/CONTRACT_REVIEW.md` for the exact code and tests behind each
+  guarantee.
 
 ## 2. Contract-side web fetching
 

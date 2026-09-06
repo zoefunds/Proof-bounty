@@ -81,6 +81,8 @@ function EvidenceArchiveStatus({ bountyId, attemptIndex }: { bountyId: number; a
   );
 }
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 export function AttemptCard({
   bounty,
   attempt,
@@ -94,9 +96,10 @@ export function AttemptCard({
   const isChallenger = address?.toLowerCase() === attempt.challenger.toLowerCase();
   const isCreator = address?.toLowerCase() === bounty.creator.toLowerCase();
   const isArbiter = address?.toLowerCase() === bounty.arbiter.toLowerCase();
-  // Owner-only actions (ResolveAppealForm) are gated contract-side, not
-  // client-side -- we don't have a cheap client-side owner check here, and
-  // a non-owner attempting resolve_appeal simply gets a clear tx rejection.
+  // `resolve_appeal` is fully permissionless -- it triggers a second,
+  // independent round of GenLayer consensus, not a human ruling, so there
+  // is no owner (or any other) gate to check client-side. Any connected
+  // wallet can render and click `ResolveAppealForm`.
 
   const [evidenceUrl, setEvidenceUrl] = useState("");
   const [evidenceDesc, setEvidenceDesc] = useState("");
@@ -292,11 +295,27 @@ export function AttemptCard({
           </div>
           <p className="font-body text-xs text-on-surface mb-1">{attempt.appeal_reason}</p>
           <p className="font-mono-data text-[10px] text-on-surface-variant">
-            Escalated to the protocol owner for a final ruling.
+            Escalated to a second, independent round of GenLayer validator consensus — not a human ruling.
           </p>
           <ResolveAppealForm bounty={bounty} attempt={attempt} onChanged={onChanged} />
         </div>
       )}
+
+      {attempt.appealed_by.toLowerCase() !== ZERO_ADDRESS &&
+        attempt.status_label !== "APPEALED" &&
+        attempt.status_label !== "DISPUTED" &&
+        attempt.status_label !== "ARBITER_RESOLVED_PENDING_APPEAL" && (
+          <div className="rounded bg-surface-container-lowest border border-border-subtle p-3">
+            <div className="font-mono-data text-[10px] text-on-surface-variant uppercase tracking-wide mb-1">
+              Final resolution — decided by GenLayer consensus on appeal
+            </div>
+            <div className="font-mono-data text-[10px] text-status-partial mb-1">
+              {attempt.pending_arbiter_verdict}
+              {attempt.pending_payout_bps > 0 && ` (${bpsToPercent(attempt.pending_payout_bps)})`}
+            </div>
+            <p className="font-body text-xs text-on-surface">{attempt.last_reasoning}</p>
+          </div>
+        )}
 
       <div className="font-mono-data text-[10px] text-on-surface-variant">
         Submitted {formatTimestamp(attempt.submitted_at)} · revisions {attempt.revision_count}/
@@ -511,15 +530,18 @@ function ResolveAppealForm({
   attempt: AttemptDetail;
   onChanged: () => void;
 }) {
-  const [note, setNote] = useState("");
-  const [partialPercent, setPartialPercent] = useState("50");
   const resolveAppealTx = useContractWrite();
 
-  async function resolve(verdict: "APPROVE" | "PARTIAL" | "REJECT") {
-    const payoutBps = verdict === "PARTIAL" ? Math.round(Number(partialPercent) * 100) : 0;
+  async function resolve() {
+    // No verdict, note, or payout to supply -- `resolve_appeal` takes no
+    // human-decided parameters at all. It re-fetches the live evidence
+    // itself and asks a fresh, independent round of GenLayer validators
+    // to reach their own verdict; the arbiter's ruling is shown to them
+    // as context only, never binding. Anyone may call this once an
+    // attempt is APPEALED -- there is no owner or arbiter gate here.
     const ok = await resolveAppealTx.write({
       functionName: "resolve_appeal",
-      args: [bounty.bounty_id, attempt.index, verdict, note, payoutBps],
+      args: [bounty.bounty_id, attempt.index],
     });
     if (ok) onChanged();
   }
@@ -527,34 +549,19 @@ function ResolveAppealForm({
   return (
     <div className="mt-3 flex flex-col gap-2 border-t border-status-disputed/20 pt-3">
       <p className="font-mono-data text-[10px] text-on-surface-variant uppercase tracking-wide">
-        Protocol owner only — final ruling
+        Final resolution — decided by GenLayer consensus, not a human
       </p>
-      <Label>Resolution note</Label>
-      <GlassInput value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reasoning..." />
-      <Label>Challenger&apos;s share, if PARTIAL (%)</Label>
-      <GlassInput
-        type="number"
-        min="1"
-        max="99"
-        value={partialPercent}
-        onChange={(e) => setPartialPercent(e.target.value)}
-      />
       <p className="font-body text-[11px] text-on-surface-variant">
-        The appeal bond returns to the appellant if this ruling differs from the arbiter&apos;s; otherwise it&apos;s
-        forfeited to the other party.
+        Triggering this asks the contract to re-fetch the live evidence and asks GenLayer&apos;s
+        validators to independently reach their own verdict — the arbiter&apos;s ruling is shown to
+        them as context but does not bind the outcome. This may take 30–100 seconds (real web fetch +
+        real LLM consensus). The appeal bond returns to the appellant if this fresh verdict differs
+        from the arbiter&apos;s; otherwise it&apos;s forfeited to the other party.
       </p>
       <TxStateBanner state={resolveAppealTx.state} txHash={resolveAppealTx.txHash} errorMessage={resolveAppealTx.errorMessage} />
-      <div className="flex gap-2">
-        <Button size="sm" onClick={() => resolve("APPROVE")} isLoading={resolveAppealTx.isBusy}>
-          Approve
-        </Button>
-        <Button size="sm" variant="secondary" onClick={() => resolve("PARTIAL")} isLoading={resolveAppealTx.isBusy}>
-          Partial
-        </Button>
-        <Button size="sm" variant="danger" onClick={() => resolve("REJECT")} isLoading={resolveAppealTx.isBusy}>
-          Reject
-        </Button>
-      </div>
+      <Button size="sm" onClick={resolve} isLoading={resolveAppealTx.isBusy}>
+        Resolve via GenLayer Consensus
+      </Button>
     </div>
   );
 }

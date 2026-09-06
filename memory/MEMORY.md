@@ -22,8 +22,8 @@ this table immediately after every redeploy, never leave it stale.**
 | | |
 |---|---|
 | **Live contract address** | `0x330Ac647fb4001d557B1De3692c454142e440079` (6th deployment, 2026-09-05) |
-| **Does the LIVE bytecode match `contracts/proof_bounty.py` right now?** | **Yes, confirmed directly against the deployed bytecode via `genlayer code 0x330Ac647fb4001d557B1De3692c454142e440079` diffed against the local source file — clean. This is the deployment that first included the arbiter-bounding/settlement-transparency machinery (`get_settlement_transparency`, `Attempt.human_verdict_overrode_ai`, mandatory `resolution_note`, the full module docstring).** |
-| **What's needed to make them match again** | Nothing right now — they match. Next time source changes, the user redeploys (per standing project rule: only the user deploys, never an agent) and provides the new address; update this table in the same breath. |
+| **Does the LIVE bytecode match `contracts/proof_bounty.py` right now?** | **NO, as of the appeal-tier redesign (see "Appeal tier redesign" section below): `resolve_appeal` on the live 6th deployment is still the old 5-parameter, owner-gated method. Source now has the 2-parameter, fully permissionless, GenLayer-consensus-driven version instead.** |
+| **What's needed to make them match again** | The user redeploys the current `contracts/proof_bounty.py` (per standing project rule: only the user deploys, never an agent) and provides the new address (the 7th deployment); update this table in the same breath. `genvm-lint` already passes clean (33 methods) and the live-network `@pytest.mark.llm` test for the new `resolve_appeal` mechanism has already been run and passed (against a throwaway `gltest`-deployed instance, not the tracked live contract). |
 | **Database state** | Both local dev Postgres and production Postgres were FULLY TRUNCATED on this redeploy (`bounties`, `attempts`, `reputation`, `activity_events`, `notifications`, `evidence_archives`, all restarted at identity 0; `indexer_state` reset to `last_bounty_count=0`) — explicit user instruction, since the old cached rows referenced bounty ids from the retired `0xf3799...` contract and would collide with the new contract's fresh counter. Currently populated with 5 real bounties from a live product-test round (see "Sixth deployment" section below). |
 | **Retired addresses — never use these** | `0x48958AD558F32044196aBa3EEb013A19e8c142D6` (1st — `get_contract_balance`/`resolve_dispute` bugs), `0x890fE7ca02b277aC883B430FE73a50987F73419B` (2nd — those fixed, pre-dates settlement-DoS/evidence-manifest/appeal/deadline fixes), `0x9A2bF6ef636070CaeE07E325835a85C71EC91c71` (3rd — had settlement-DoS/appeal/evidence-manifest fixes but predated `INSUFFICIENT_EVIDENCE`, the DNS-rebind fix, and the evidence-archive hash cross-check), `0x4b8b06e93aD3e06F29a4491844904743B6d9a0b2` (4th — had all fixes through the evidence-archive hash cross-check and the `resolve_appeal` live verification), `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (5th — had the arbiter-bounding source changes written but not yet deployed when it was superseded); addresses 4 and 5 were both simply superseded by later product-test rounds, not known bugs |
 
@@ -1359,3 +1359,126 @@ window resets naturally; no further action needed, the indexer resumes
 on its own. The on-chain data itself was independently confirmed correct
 throughout (direct `genlayer-js` reads), never in question -- only the
 backend's cache was affected.
+
+## Appeal tier redesign: GenLayer consensus replaces the owner's final call (2026-09-05)
+
+An external review scored the project 4/5 on "GenLayer fit" specifically
+because the owner-gated `resolve_appeal` meant a human still had the
+final, binding word on a meaningful subset of disputed payouts --
+undercutting the claim that GenLayer consensus is what ultimately
+produces a fair outcome. The review's own suggested fix: "GenLayer
+consensus re-evaluation over appeal evidence." Implemented for real, not
+just documented as a scope boundary this time:
+
+**Contract changes** (`contracts/proof_bounty.py`):
+- New `_collect_appeal_verdict` helper -- structurally identical to
+  `_collect_verdict` (contract fetches the live evidence itself, judges
+  only the fetched content, requires validator agreement via
+  `gl.eq_principle.prompt_comparative`), but the prompt additionally
+  shows the arbiter's ruling/reasoning and the appellant's stated
+  objection, and explicitly tells the model this is the FINAL word.
+  Kept as a separate method (not a parameterized `_collect_verdict`) so
+  the original, already-tested primary verification path's prompt and
+  behavior stay completely unchanged.
+- `resolve_appeal(bounty_id, attempt_index)` rewritten from a
+  5-parameter, `_require_owner()`-gated method into a 2-parameter,
+  **fully permissionless** one. No verdict/resolution_note/payout_bps
+  are supplied by a caller anymore -- the fresh AI verdict IS the
+  ruling. `appeal_succeeded` (who gets the appeal bond) is computed by
+  reusing `_human_verdict_matches_ai_outcome` to compare the fresh
+  verdict against the arbiter's pending one, exactly the same comparison
+  already used to detect AI-vs-arbiter divergence elsewhere. An
+  inconclusive fresh review (`NEEDS_REVISION`/`INSUFFICIENT_EVIDENCE`)
+  refunds the bond via `ATTEMPT_INSUFFICIENT_EVIDENCE_FINAL` and counts
+  as the appeal succeeding (a confident arbiter ruling a second
+  independent review can't confirm shouldn't stand).
+- `_record_settlement_provenance(attempt, via_human_ruling=False)` in
+  `resolve_appeal` (was `True`) -- appeal resolutions now count toward
+  `attempts_settled_by_ai_consensus`, never `attempts_settled_by_human_override`,
+  since GenLayer consensus decided them. That counter can now ONLY ever
+  be incremented by `finalize_arbiter_resolution` -- i.e. only when a
+  diverging arbiter ruling stood UNAPPEALED. This makes the real,
+  remaining trust boundary precise and honestly narrower: a human's word
+  determines a payout only when both parties decline their available
+  right to a fresh GenLayer consensus review.
+- Found and fixed a real, pre-existing inaccuracy while touching the
+  `owner` field's docstring a second time: it had been rewritten in the
+  PREVIOUS pass to say the owner "can move money, but ONLY through
+  `resolve_appeal`" -- now restored to the original, stronger, and now
+  TRUE claim that the owner can never move a single bounty's escrowed
+  funds at all.
+- Rewrote the module docstring's "ARBITER TRUST MODEL AND THE APPEAL
+  PATH" section end to end to describe the new mechanism precisely.
+
+**Tests** (`tests/integration/test_proof_bounty.py`, still 34 total):
+- Removed `test_resolve_appeal_rejects_non_owner` and
+  `test_resolve_appeal_rejects_empty_resolution_note` (both asserted
+  behavior that no longer exists).
+- Added `test_resolve_appeal_rejects_when_not_appealed` (deterministic,
+  live-network -- proves a stranger CAN call it, but it still correctly
+  rejects for state-machine reasons, not access control).
+- Added `test_resolve_appeal_is_decided_by_genlayer_consensus_not_a_human`
+  (`@pytest.mark.llm`, real web fetch + real LLM consensus, called by
+  the challenger themselves) -- **ran live and PASSED** before this
+  section was written, confirming the whole mechanism actually works,
+  not just compiles.
+
+**Frontend** (`apps/web/components/bounty/AttemptCard.tsx`): rewrote
+`ResolveAppealForm` from a verdict/note/payout-share input form into a
+single button any connected wallet can click (matching the new
+permissionless signature) with copy explaining the consensus mechanism.
+Added a new terminal-state display block (triggers on
+`appealed_by != zero address` + a resolved status) showing the fresh
+consensus verdict from `pending_arbiter_verdict`/`last_reasoning`, since
+the existing "GenLayer Verdict" block only ever read `last_verdict`,
+which `resolve_appeal` never touches (would have shown stale, pre-dispute
+data for any appeal-resolved attempt). Fixed the stale "Escalated to the
+protocol owner" copy and the client-side comment claiming an owner gate
+existed. Lint + `tsc --noEmit` both clean.
+
+**Backend** (`apps/api/src/services/indexer.ts`): while updating
+appeal-related notification copy, found and fixed a real, pre-existing
+bug unrelated to this redesign -- the `ARBITER_RULED` and
+`VERDICT_RECEIVED` notification cases both read `attempt.last_verdict`
+where they meant the arbiter's/appeal's actual ruling
+(`pending_arbiter_verdict`), which would have shown the wrong (stale,
+pre-dispute) verdict text in real notifications. Also found
+`INSUFFICIENT_EVIDENCE_FINAL` was missing from `attemptStatusChangeKind`
+entirely -- an attempt reaching that status (reachable via the primary
+path OR now via an inconclusive `resolve_appeal`) sent NO notification
+at all. Both fixed. `tsc --noEmit` clean.
+
+**Scripts**: `scripts/09-appeal-flow.mjs` and
+`scripts/12-product-test-c-dispute-appeal.mjs` both used to deliberately
+stop at `APPEALED` with a comment explaining `resolve_appeal` was
+owner-gated and out of scope. Both now run the FULL chain live, calling
+`resolve_appeal` for real (as a stranger / the challenger respectively,
+proving no access gate exists) and asserting on
+`get_settlement_transparency()` afterward.
+
+**Docs**: README ("Why this needs GenLayer" + "How it works" step 8),
+`docs/CONTRACT_REVIEW.md` (the arbiter/appeal + access-control tables),
+`docs/SECURITY.md` (§1b's arbiter section), `docs/ARCHITECTURE.md`
+(contract-design bullets, frontend/backend/testing structure sections)
+all rewritten to describe the new mechanism, not the old owner-gated one.
+
+**Separately, while verifying the review's specific claims before
+acting on them**: the claim "frontend production build failed in this
+environment because Turbopack could not bind an internal port" did NOT
+reproduce -- ran `npm run build` twice in this session, both times
+completed cleanly with all 10 routes generated. Flagged to the user as
+likely an environment-specific fluke on the reviewer's own sandbox, not
+a real defect in this codebase. Every other claim in that review
+(settlement transparency numbers, method count, lint status) was
+independently re-verified and confirmed accurate before proceeding.
+
+**Standing next step**: none of this is live until the user redeploys
+(this would be the 7th deployment). `genvm-lint` passes clean (33
+methods, unchanged -- `resolve_appeal`'s signature changed but it's the
+same method). The one live-network LLM test
+(`test_resolve_appeal_is_decided_by_genlayer_consensus_not_a_human`) has
+already been run and passed against the CURRENT source via `gltest`'s
+own deploy-per-test-run pattern (it deploys a fresh throwaway contract
+instance itself, separate from the project's tracked live deployment) --
+this is real, live proof the mechanism works, independent of whether the
+project's actual tracked contract has been redeployed with it yet.

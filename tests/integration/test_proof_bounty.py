@@ -488,10 +488,13 @@ def test_request_verification_full_lifecycle(accounts):
 # against live StudioNet. These cover the SAME state-machine transitions as
 # real `gltest` assertions instead, and run offline like the rest of the
 # suite: `raise_dispute`/`resolve_dispute`/`appeal_arbiter_resolution`/
-# `finalize_arbiter_resolution`/`resolve_appeal` never touch
-# `gl.nondet.*` -- only `request_verification` does -- so the entire
-# appeal path can be driven by an arbiter's explicit verdict with no live
-# web fetch or LLM call involved.
+# `finalize_arbiter_resolution` never touch `gl.nondet.*`, so the dispute ->
+# pending-appeal -> appeal-posted chain can be driven with no live web
+# fetch or LLM call involved. `resolve_appeal` itself now DOES touch
+# `gl.nondet.*` (a second, independent GenLayer consensus round replacing
+# what used to be an owner's personal judgment call -- see that method's
+# docstring) and is therefore only exercised live, marked `@pytest.mark.llm`,
+# not in this offline block.
 # ============================================================================
 
 
@@ -744,43 +747,43 @@ def test_appeal_arbiter_resolution_success_reaches_appealed_status(accounts):
     assert not tx_execution_succeeded(tx_double)
 
 
-def test_resolve_appeal_rejects_non_owner(accounts):
+def test_resolve_appeal_rejects_when_not_appealed(accounts):
+    """`resolve_appeal` is permissionless (no owner gate at all -- see its
+    docstring for why: the final word belongs to a second GenLayer
+    consensus round, never a human), but it still enforces the state
+    machine: it must reject on an attempt that was never appealed. Cheap,
+    deterministic, and doesn't need to reach the live LLM path this
+    method's success case requires."""
     treasury = accounts[1].address
-    arbiter_account = accounts[2]
-    arbiter = arbiter_account.address
+    arbiter = accounts[2].address
     challenger = accounts[3]
+    stranger = accounts[4]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
     contract.connect(challenger).accept_bounty(args=[0]).transact(
         value=0, wait_transaction_status=TransactionStatus.FINALIZED
     )
-    contract.connect(challenger).raise_dispute(args=[0, 0, "Disputing directly"]).transact(
-        wait_transaction_status=TransactionStatus.FINALIZED
-    )
-    contract.connect(arbiter_account).resolve_dispute(args=[0, 0, "REJECT", "Arbiter rejects", 0]).transact(
-        wait_transaction_status=TransactionStatus.FINALIZED
-    )
-    contract.appeal_arbiter_resolution(args=[0, 0, "Appealing the rejection"]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
 
-    # The contract's deployer/owner is accounts[0] by default in this
-    # harness (see _deploy / factory.deploy) -- the arbiter is explicitly
-    # NOT the owner and must be rejected here, proving resolve_appeal is
-    # gated to the protocol owner specifically, not just "not a stranger".
-    tx = contract.connect(arbiter_account).resolve_appeal(
-        args=[0, 0, "REJECT", "I am the arbiter, not the owner", 0]
-    ).transact(wait_transaction_status=TransactionStatus.FINALIZED)
-    assert not tx_execution_succeeded(tx)
+    # A total stranger may call it (permissionless) -- it still correctly
+    # rejects, but for state-machine reasons (never appealed), not access
+    # control. This is itself part of the proof that no human gate exists
+    # here anymore.
+    tx = contract.connect(stranger).resolve_appeal(args=[0, 0]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    assert not tx_execution_succeeded(tx), "resolve_appeal must reject an attempt that was never appealed"
 
 
 # ============================================================================
-# Settlement transparency -- proves the human-ruling tier (arbiter + owner
-# appeal) cannot silently substitute its own verdict for AI consensus:
-# every human ruling requires written justification on-chain, and whether
-# it actually changed the economic outcome (vs merely confirming what AI
-# already decided) is recorded per-attempt and rolled up into a contract-
-# wide, always-queryable counter (`get_settlement_transparency`).
+# Settlement transparency -- proves the human-ruling tier (the arbiter)
+# cannot silently substitute its own verdict for AI consensus: every human
+# ruling requires written justification on-chain, appealing always
+# escalates to a second independent GenLayer consensus round (never a
+# human's final word -- see `resolve_appeal`), and whether an UNAPPEALED
+# arbiter ruling actually changed the economic outcome (vs merely
+# confirming what AI already decided) is recorded per-attempt and rolled
+# up into a contract-wide, always-queryable counter
+# (`get_settlement_transparency`).
 # ============================================================================
 
 
@@ -801,34 +804,6 @@ def test_resolve_dispute_rejects_empty_resolution_note(accounts):
     tx = contract.connect(arbiter_account).resolve_dispute(
         args=[0, 0, "APPROVE", "", 0]
     ).transact(wait_transaction_status=TransactionStatus.FINALIZED)
-    assert not tx_execution_succeeded(tx), "a bare verdict with no written justification must be rejected"
-
-
-def test_resolve_appeal_rejects_empty_resolution_note(accounts):
-    treasury = accounts[1].address
-    arbiter_account = accounts[2]
-    arbiter = arbiter_account.address
-    challenger = accounts[3]
-    contract = _deploy(treasury)
-    _create_bounty(contract, arbiter, bond=0)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
-    contract.connect(challenger).raise_dispute(args=[0, 0, "Disputing directly"]).transact(
-        wait_transaction_status=TransactionStatus.FINALIZED
-    )
-    contract.connect(arbiter_account).resolve_dispute(args=[0, 0, "REJECT", "Arbiter rejects", 0]).transact(
-        wait_transaction_status=TransactionStatus.FINALIZED
-    )
-    # Default signer (accounts[0]) is the deploying owner -- see the
-    # comment above test_resolve_appeal_rejects_non_owner.
-    contract.appeal_arbiter_resolution(args=[0, 0, "Appealing the rejection"]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
-
-    tx = contract.resolve_appeal(args=[0, 0, "APPROVE", "", 0]).transact(
-        wait_transaction_status=TransactionStatus.FINALIZED
-    )
     assert not tx_execution_succeeded(tx), "a bare verdict with no written justification must be rejected"
 
 
@@ -941,3 +916,63 @@ def test_human_override_not_flagged_when_arbiter_agrees_with_ai_verdict(direct_v
 
     attempt = contract.get_attempt(0, 0)
     assert attempt["human_verdict_overrode_ai"] is False, "the arbiter's ruling matches the AI's own verdict -- this is agreement, not an override"
+
+
+@pytest.mark.llm
+def test_resolve_appeal_is_decided_by_genlayer_consensus_not_a_human(accounts):
+    """
+    The direct proof that replacing the owner's personal judgment with a
+    second GenLayer consensus round actually works end to end: real web
+    fetch, real LLM consensus, permissionless call (no owner key
+    involved at all -- the default signer here is the SAME account that
+    raised the dispute, proving there is no owner gate to satisfy).
+    """
+    treasury = accounts[1].address
+    arbiter_account = accounts[2]
+    arbiter = arbiter_account.address
+    challenger = accounts[3]
+    contract = _deploy(treasury)
+    _create_bounty(
+        contract, arbiter, bond=0, category="DOCUMENTATION",
+    )
+    contract.connect(challenger).accept_bounty(args=[0]).transact(
+        value=0, wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    contract.connect(challenger).raise_dispute(args=[0, 0, "Escalating directly, no prior AI verdict on this attempt"]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    # Arbiter deliberately rules REJECT on a bounty whose real evidence
+    # requirements point at GenLayer's own docs -- setting up a case where
+    # a fresh, independent consensus review has a real, checkable
+    # question to answer, not a foregone conclusion either way.
+    tx_resolve = contract.connect(arbiter_account).resolve_dispute(
+        args=[0, 0, "REJECT", "Arbiter's initial read without checking the live page closely", 0]
+    ).transact(wait_transaction_status=TransactionStatus.FINALIZED)
+    assert tx_execution_succeeded(tx_resolve)
+
+    tx_appeal = contract.connect(challenger).appeal_arbiter_resolution(
+        args=[0, 0, "The arbiter did not check the actual evidence page; requesting an independent review"]
+    ).transact(value=0, wait_transaction_status=TransactionStatus.FINALIZED)
+    assert tx_execution_succeeded(tx_appeal)
+    attempt = contract.get_attempt(args=[0, 0]).call()
+    assert attempt["status_label"] == "APPEALED"
+
+    # Permissionless: called by the challenger themselves, not any
+    # designated authority -- there is no owner key involved anywhere in
+    # this test.
+    tx_final = contract.connect(challenger).resolve_appeal(args=[0, 0]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    assert tx_execution_succeeded(tx_final), "resolve_appeal tx succeeded (real web fetch + real LLM consensus, no GenVM error)"
+
+    attempt_final = contract.get_attempt(args=[0, 0]).call()
+    # Whatever the fresh consensus concluded, the attempt must have reached
+    # a real terminal state (or a defined non-terminal fallback state) --
+    # never stuck in APPEALED.
+    assert attempt_final["status_label"] != "APPEALED", "resolve_appeal must move the attempt out of APPEALED"
+    assert attempt_final["pending_arbiter_verdict"] in (
+        "APPROVED", "PARTIAL", "REJECTED", "NEEDS_REVISION", "INSUFFICIENT_EVIDENCE",
+    ), "the final recorded verdict must be the fresh AI verdict vocabulary, not the arbiter's ARBITER_* one"
+
+    transparency = contract.get_settlement_transparency(args=[]).call()
+    assert transparency["attempts_settled_by_ai_consensus"] >= 1, "resolve_appeal's resolution must count toward AI consensus, not human override"

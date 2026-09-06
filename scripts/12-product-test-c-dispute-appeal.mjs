@@ -7,11 +7,12 @@ function assert(cond, msg) {
   console.log("  ✓", msg);
 }
 
-console.log("=== PRODUCT TEST C: dispute -> named arbiter's ruling -> appeal (stops before finalize/owner resolution) ===");
-console.log("Deliberately stops at APPEALED. finalize_arbiter_resolution needs the 2-day appeal window to actually");
-console.log("elapse (calling it early would revert), and resolve_appeal is owner-only and explicitly out of scope");
-console.log("for this test round. Every transaction below is expected to succeed regardless of the AI verdict,");
-console.log("since we escalate to the arbiter no matter what the initial verdict was.\n");
+console.log("=== PRODUCT TEST C: dispute -> named arbiter's ruling -> appeal -> GenLayer-consensus final resolution ===");
+console.log("Goes all the way through resolve_appeal now that it's permissionless and consensus-driven (no owner");
+console.log("key needed, no human makes the final call). finalize_arbiter_resolution alone is still skipped since");
+console.log("it needs the 2-day appeal window to actually elapse (calling it early would revert). Every transaction");
+console.log("below is expected to succeed regardless of the AI verdict, since we escalate to the arbiter no matter");
+console.log("what the initial verdict was, and then always appeal that ruling.\n");
 
 const creator = await loadAccount("vde-claimant");
 const challenger = await loadAccount("dv-seller");
@@ -103,15 +104,23 @@ if (attempt.status_label === "DISPUTED") {
   console.log("\n-- appeal_arbiter_resolution (creator appeals the arbiter's override, real appeal bond posted) --");
   const { receipt: appealReceipt } = await write(
     creatorClient, "appeal_arbiter_resolution",
-    [bountyId, 0, "The arbiter's override does not match the precommitted criteria, which required the exact draft page, not just a credible research effort. Requesting the protocol owner's final review."],
+    [bountyId, 0, "The arbiter's override does not match the precommitted criteria, which required the exact draft page, not just a credible research effort. Requesting an independent GenLayer consensus review."],
     toGenWei(bondGen)
   );
   assert(receiptSucceeded(appealReceipt), "appeal_arbiter_resolution succeeded");
   attempt = await read("get_attempt", [bountyId, 0]);
   assert(attempt.status_label === "APPEALED", "attempt status is APPEALED");
   console.log("   appealed_by:", attempt.appealed_by, "| appeal_bond_deposited:", attempt.appeal_bond_deposited);
-  console.log("\n   Stopping here by design: finalize_arbiter_resolution would revert until the appeal window");
-  console.log("   closes on its own, and resolve_appeal is owner-only and out of scope for this test round.");
+
+  console.log("\n-- resolve_appeal (permissionless -- called by the challenger, real web fetch + real LLM consensus) --");
+  const { receipt: finalReceipt } = await write(challengerClient, "resolve_appeal", [bountyId, 0]);
+  assert(receiptSucceeded(finalReceipt), "resolve_appeal tx succeeded (no GenVM error, no owner key involved)");
+  attempt = await read("get_attempt", [bountyId, 0]);
+  console.log("   final status:", attempt.status_label, "| final verdict:", attempt.pending_arbiter_verdict);
+  assert(attempt.status_label !== "APPEALED", "resolve_appeal must move the attempt out of APPEALED");
+
+  const transparency = await read("get_settlement_transparency", []);
+  console.log("   get_settlement_transparency:", JSON.stringify(transparency));
 } else {
   console.log("\n   Dispute path did not reach DISPUTED status this run; arbiter/appeal steps correctly skipped.");
 }

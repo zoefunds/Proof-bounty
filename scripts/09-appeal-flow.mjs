@@ -100,7 +100,7 @@ await expectFail("empty appeal reason", () =>
 console.log("\n-- appeal_arbiter_resolution (real, creator posts the appeal bond) --");
 const { receipt: appealReceipt } = await write(
   creatorClient, "appeal_arbiter_resolution",
-  [bountyId, 0, "The evidence submitted does not actually satisfy the precommitted criteria; requesting the protocol owner's final review."],
+  [bountyId, 0, "The evidence submitted does not actually satisfy the precommitted criteria; requesting an independent GenLayer consensus review."],
   toGenWei(bondGen)
 );
 assert(receiptSucceeded(appealReceipt), "appeal_arbiter_resolution succeeded — real appeal bond posted");
@@ -114,20 +114,21 @@ await expectFail("double-appeal", () =>
   write(challengerClient, "appeal_arbiter_resolution", [bountyId, 0, "Also appealing."], toGenWei(bondGen))
 );
 
-console.log("\n-- resolve_appeal access control (non-owner must fail) --");
-await expectFail("non-owner cannot resolve_appeal", () =>
-  write(arbiterClient, "resolve_appeal", [bountyId, 0, "REJECT", "I am the arbiter, not the owner.", 0])
-);
-await expectFail("challenger cannot resolve_appeal", () =>
-  write(challengerClient, "resolve_appeal", [bountyId, 0, "APPROVE", "Trying to self-resolve.", 0])
-);
+console.log("\n-- resolve_appeal (permissionless -- proving no owner/access gate exists by calling it as a stranger) --");
+const { receipt: finalReceipt } = await write(strangerClient, "resolve_appeal", [bountyId, 0]);
+assert(receiptSucceeded(finalReceipt), "resolve_appeal tx succeeded (real web fetch + real LLM consensus, called by a complete stranger, no owner key anywhere in this test)");
+attempt = await read("get_attempt", [bountyId, 0]);
+console.log("   final status:", attempt.status_label, "| final verdict:", attempt.pending_arbiter_verdict);
+assert(attempt.status_label !== "APPEALED", "resolve_appeal must move the attempt out of APPEALED");
+
+const transparency = await read("get_settlement_transparency", []);
+console.log("   get_settlement_transparency:", JSON.stringify(transparency));
 
 console.log(
-  "\nNote: resolve_appeal's SUCCESS path requires the actual contract owner's private key, which " +
-  "this session deliberately never sought access to (see memory/MEMORY.md — the owner account is " +
-  "locked and no password was available or requested). Every access-control and state-machine " +
-  "transition UP TO that final owner-only call is verified live above; the owner-gated execution " +
-  "itself is the one link in this chain that can only be tested by the user directly."
+  "\nNote: `resolve_appeal` used to be owner-gated -- it no longer is. The final appeal tier is now " +
+  "decided by a second, independent round of GenLayer validator consensus " +
+  "(`_collect_appeal_verdict`), never a human's personal judgment, so this test now runs the FULL " +
+  "chain live with no owner key involved at any point."
 );
 
-console.log("\n✅ APPEAL FLOW TEST PASSED (through the owner-gated boundary). bountyId:", bountyId);
+console.log("\n✅ APPEAL FLOW TEST PASSED (full chain, including the GenLayer-consensus final resolution). bountyId:", bountyId);

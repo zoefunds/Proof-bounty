@@ -340,10 +340,16 @@ function attemptRecipients(
     case "EVIDENCE_SUBMITTED":
       return [[bounty.creator, `Evidence submitted on "${bounty.title}"`, `${who} submitted evidence for review.`]];
     case "VERDICT_RECEIVED":
+      // `pending_arbiter_verdict` takes priority when present: once an
+      // attempt has gone through the dispute/appeal path,
+      // `resolve_appeal`'s fresh GenLayer-consensus verdict lands there,
+      // not in `last_verdict` (which would otherwise show the STALE
+      // pre-dispute verdict from before the AI's original call was ever
+      // contested).
       return [
         [
           attempt.challenger,
-          `Verdict on "${bounty.title}": ${attempt.last_verdict || attempt.status_label}`,
+          `Verdict on "${bounty.title}": ${attempt.pending_arbiter_verdict || attempt.last_verdict || attempt.status_label}`,
           attempt.last_reasoning || `Your attempt reached ${attempt.status_label}.`,
         ],
         ...(attempt.status_label === "WON"
@@ -361,14 +367,18 @@ function attemptRecipients(
         [attempt.challenger, `Dispute raised on "${bounty.title}"`, `Your attempt was disputed.`],
       ];
     case "ARBITER_RULED":
+      // The arbiter's actual ruling lives in `pending_arbiter_verdict`
+      // once `resolve_dispute` runs -- `last_verdict` still holds
+      // whatever the ORIGINAL AI verdict was before the dispute (if any),
+      // not what the arbiter just decided.
       return [
-        [bounty.creator, `Arbiter ruled on "${bounty.title}"`, `The arbiter ruled ${attempt.last_verdict}. Appeal window is open.`],
-        [attempt.challenger, `Arbiter ruled on "${bounty.title}"`, `The arbiter ruled ${attempt.last_verdict}. Appeal window is open.`],
+        [bounty.creator, `Arbiter ruled on "${bounty.title}"`, `The arbiter ruled ${attempt.pending_arbiter_verdict}. Appeal window is open.`],
+        [attempt.challenger, `Arbiter ruled on "${bounty.title}"`, `The arbiter ruled ${attempt.pending_arbiter_verdict}. Appeal window is open.`],
       ];
     case "APPEALED":
       return [
-        [bounty.creator, `Appeal raised on "${bounty.title}"`, `The arbiter's ruling was appealed and awaits the protocol owner's final call.`],
-        [attempt.challenger, `Appeal raised on "${bounty.title}"`, `The arbiter's ruling was appealed and awaits the protocol owner's final call.`],
+        [bounty.creator, `Appeal raised on "${bounty.title}"`, `The arbiter's ruling was appealed, escalating to a second, independent round of GenLayer consensus.`],
+        [attempt.challenger, `Appeal raised on "${bounty.title}"`, `The arbiter's ruling was appealed, escalating to a second, independent round of GenLayer consensus.`],
       ];
     default:
       return [];
@@ -391,6 +401,8 @@ function attemptStatusChangeKind(statusLabel: string): string {
     case "REJECTED_FINAL":
       return "VERDICT_RECEIVED";
     case "NEEDS_REVISION":
+      return "VERDICT_RECEIVED";
+    case "INSUFFICIENT_EVIDENCE_FINAL":
       return "VERDICT_RECEIVED";
     case "DISPUTED":
       return "DISPUTED";

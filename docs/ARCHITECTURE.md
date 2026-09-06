@@ -146,21 +146,28 @@ product). The short version:
   top-level README's "How it works" section for what each one means and
   why `INSUFFICIENT_EVIDENCE` is a distinct outcome from both `REJECTED`
   and `NEEDS_REVISION`.
-- **Two-tier, appealable dispute resolution, bounded not routine.**
-  `resolve_dispute` (the named arbiter's ruling) never moves money
-  immediately — it opens an appeal window. `finalize_arbiter_resolution`
+- **Two-tier, appealable dispute resolution — no human has the final
+  word.** `resolve_dispute` (the named arbiter's ruling) never moves
+  money immediately — it opens an appeal window. `finalize_arbiter_resolution`
   executes the ruling only once that window has closed unappealed.
-  `appeal_arbiter_resolution` + `resolve_appeal` (protocol-owner-only)
-  form the second and final tier. This is what makes "appealable"
-  structurally real: once GEN has actually left the contract there is
-  nothing left to appeal *to*. Critically, this tier can **never** touch
-  a reward AI consensus has already paid (`ATTEMPT_WON` is excluded from
-  `raise_dispute`'s live-state check), every human ruling requires
-  non-empty written justification, and whether a ruling actually changed
-  the AI's outcome (versus merely confirming it) is recorded per-attempt
-  and rolled into two contract-wide counters queryable via
-  `get_settlement_transparency()` — see `docs/CONTRACT_REVIEW.md` and
-  the contract's own "ARBITER TRUST MODEL AND THE APPEAL PATH" module
+  `appeal_arbiter_resolution` + `resolve_appeal` (fully permissionless,
+  no owner or arbiter gate) form the second and final tier — and
+  `resolve_appeal` is itself a SECOND, independent round of GenLayer
+  validator consensus (a real `gl.nondet.web.render` +
+  `gl.eq_principle.prompt_comparative` re-evaluation), not a human's
+  personal judgment. This is what makes "appealable" structurally real:
+  once GEN has actually left the contract there is nothing left to
+  appeal *to*, and the party escalating always gets a fresh consensus
+  review, never a more-trusted human's opinion. Critically, this tier
+  can **never** touch a reward AI consensus has already paid
+  (`ATTEMPT_WON` is excluded from `raise_dispute`'s live-state check),
+  every arbiter ruling requires non-empty written justification, and
+  whether an UNAPPEALED arbiter ruling actually changed the AI's outcome
+  (versus merely confirming it) is recorded per-attempt and rolled into
+  two contract-wide counters queryable via `get_settlement_transparency()`
+  — a `resolve_appeal` resolution always counts as AI-consensus-decided,
+  never as a human override. See `docs/CONTRACT_REVIEW.md` and the
+  contract's own "ARBITER TRUST MODEL AND THE APPEAL PATH" module
   docstring section for the full mechanism.
 - **Escrow safety**: every payout path reads the ledger, zeros it, persists
   state, and only then transfers value — structurally immune to
@@ -194,9 +201,10 @@ product). The short version:
   (React's `react-hooks/purity` lint rule forbids that).
 - `components/bounty/AttemptCard.tsx` — the full attempt lifecycle UI:
   evidence submission, verification trigger, dispute, the two-tier appeal
-  flow (appeal button, countdown, `ResolveAppealForm` for the owner-gated
-  final call), the evidence manifest hash display, and the independent
-  off-chain archive's hash-match indicator.
+  flow (appeal button, countdown, `ResolveAppealForm` — permissionless,
+  triggers the second GenLayer-consensus round, no owner/arbiter gate),
+  the evidence manifest hash display, and the independent off-chain
+  archive's hash-match indicator.
 - `components/layout/NotificationBell.tsx` — polling notification bell
   (25s interval), reads the backend's per-recipient `Notification` table.
 
@@ -254,7 +262,8 @@ product). The short version:
   validation failures, the happy-path multi-challenger race, the
   rejected path, remaining write methods, dispute flow, reputation, the
   40-attempt cap + zero-bond terminal transitions, and the full two-tier
-  appeal flow through the owner-gated boundary). `10`–`13` are four
+  appeal flow all the way through the GenLayer-consensus final
+  resolution — no owner key involved anywhere). `10`–`13` are four
   independent, self-contained product-test rounds (multi-challenger
   settlement race + deadline extension, rejected-verdict forfeiture, the
   full dispute/arbiter/appeal chain, and bounty cancellation + a

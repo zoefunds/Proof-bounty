@@ -113,67 +113,73 @@ ARBITER TRUST MODEL AND THE APPEAL PATH -- BOUNDED, NOT ROUTINE, NOT SILENT
 
 AI consensus is the PRIMARY path. Every attempt that is never disputed
 settles entirely through the trace above -- no human ever touches it.
-The dispute/arbiter/appeal machinery exists ONLY as a bounded exception
-path for cases someone believes the automated check got wrong, and it is
-deliberately constrained on three independent axes so it cannot become
-a routine substitute for consensus:
+The dispute/arbiter machinery exists ONLY as a bounded, appealable
+exception path for cases someone believes the automated check got
+wrong, and it is deliberately constrained so it cannot become a routine
+substitute for consensus, and so that its FINAL word is never a human's:
 
 1. **It can never touch money AI consensus has already paid.**
    `raise_dispute` only accepts attempts still in `_ATTEMPT_LIVE_STATES`
    (ACCEPTED, SUBMITTED, NEEDS_REVISION, REJECTED_FINAL). `ATTEMPT_WON`
    is a terminal status EXCLUDED from that set -- once AI consensus has
-   settled a reward, there is no method on this contract, arbiter- or
-   owner-gated or otherwise, that can reopen, reverse, or claw it back.
-   The only attempts a human can ever rule on are ones where AI consensus
-   either never rendered a verdict yet, or rendered a REJECTED verdict
-   whose bond has not yet been claimed (`claim_bond_forfeiture` requires
-   this explicit, separate claim specifically so a wrongly-rejected
-   challenger has a real window to dispute BEFORE forfeiture, not after).
-2. **Every human ruling requires written, on-chain justification.**
-   `resolve_dispute` and `resolve_appeal` both reject an empty
-   `resolution_note` -- a human cannot move money on a bare verdict code
+   settled a reward, there is no method on this contract that can
+   reopen, reverse, or claw it back. The only attempts a human arbiter
+   can ever rule on are ones where AI consensus either never rendered a
+   verdict yet, or rendered a REJECTED verdict whose bond has not yet
+   been claimed (`claim_bond_forfeiture` requires this explicit, separate
+   claim specifically so a wrongly-rejected challenger has a real window
+   to dispute BEFORE forfeiture, not after).
+2. **The arbiter's ruling never moves money immediately, and never has
+   the final word.** `resolve_dispute` only records a PENDING verdict
+   and opens a 2-day `appeal_deadline` window
+   (`ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL`). Either party may
+   `appeal_arbiter_resolution` (posting a bond) within that window to
+   escalate to `resolve_appeal` -- a SECOND, independent round of
+   GenLayer validator consensus (`_collect_appeal_verdict`), never a
+   human owner's personal judgment. Only if NEITHER party appeals does
+   `finalize_arbiter_resolution` (permissionless) execute the arbiter's
+   ruling as-is once the window closes. This means the only way a human
+   ruling ever determines a payout is if both parties decline their
+   available right to a fresh, independent GenLayer consensus review --
+   not because any human has final authority over the outcome.
+3. **Every human ruling requires written, on-chain justification.**
+   `resolve_dispute` rejects an empty `resolution_note` -- an arbiter
+   cannot even open the pending-appeal window on a bare verdict code
    with no stated reasoning attached to the permanent record.
-3. **Whether a human ruling actually changed anything is recorded and
-   aggregated, not asserted.** Every `Attempt` carries
-   `human_verdict_overrode_ai`, computed by comparing the human's ruling
-   against whatever AI consensus had already concluded for that specific
-   attempt (see `_human_verdict_matches_ai_outcome`) -- a human ruling
-   that merely confirms the AI's own verdict after a contested-but-
-   ultimately-agreed dispute is NOT counted as an override. Every
-   settlement, whichever path produced it, increments exactly one of two
-   contract-wide counters (`attempts_settled_by_ai_consensus` /
-   `attempts_settled_by_human_override`), queryable at any time via
-   `get_settlement_transparency()`. This does not PREVENT the owner from
-   ruling on an appeal -- `resolve_appeal` remains a real, disclosed
-   trust boundary, and a protocol where the owner rules on every single
-   appeal would still show a 100% override rate on THAT subset. What it
-   guarantees is that the override rate across the whole protocol is a
-   live, on-chain, unfalsifiable fact rather than a claim -- anyone can
-   check whether this tier is actually exceptional or is quietly doing
-   most of the work, without trusting anyone's say-so about it.
-
-Two tiers exist above raw arbiter say-so specifically to make "appealable"
-structurally real rather than cosmetic: `resolve_dispute` does NOT move
-money -- it opens a 2-day `appeal_deadline` window
-(`ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL`) during which either party may
-`appeal_arbiter_resolution` (posting a bond) to escalate to the protocol
-owner's final call via `resolve_appeal`. Only once that window closes
-unappealed does `finalize_arbiter_resolution` (permissionless -- anyone
-may call it) actually execute the ruling. Holding the payout behind a
-window is what makes "the loser can appeal" meaningfully true: once GEN
-has left the contract there is nothing left to appeal to.
+4. **Whether the arbiter's (still-standing, unappealed) ruling actually
+   changed anything is recorded and aggregated, not asserted.** Every
+   `Attempt` carries `human_verdict_overrode_ai`, computed by comparing
+   the arbiter's ruling against whatever AI consensus had already
+   concluded for that specific attempt (see
+   `_human_verdict_matches_ai_outcome`) -- a ruling that merely confirms
+   the AI's own verdict is NOT counted as an override. Every settlement,
+   whichever path produced it, increments exactly one of two
+   contract-wide counters (`attempts_settled_by_ai_consensus` --
+   which includes BOTH the primary path and every `resolve_appeal`
+   resolution, since that tier is GenLayer consensus too --
+   `attempts_settled_by_human_override`, incremented only when an
+   arbiter's diverging ruling stood UNAPPEALED), queryable at any time
+   via `get_settlement_transparency()`. This makes the real, remaining
+   trust boundary a live, on-chain, unfalsifiable fact: the only
+   circumstance a human's word ever determines a payout is when it goes
+   unchallenged by choice, and exactly how often that happens is
+   directly queryable, not a claim anyone has to take on faith.
 
 **What this deliberately is NOT**: a staked, multi-arbiter marketplace
-with slashing and conflict-of-interest disclosure. That is a legitimately
-larger protocol redesign (an entire second incentive-compatible
-subsystem, not a contract tweak) and is documented here as a real,
-intentional scope boundary rather than silently left unaddressed. The
-owner is already the sole trusted party for this protocol's non-monetary
-admin surface (default fee, treasury address, pause flag); extending
-that SAME, already-disclosed trust boundary to be the final appeal
-backstop -- bounded exactly as described above -- is a materially
-smaller and more honest surface than inventing a new, unstaked authority
-for this one purpose.
+with slashing and conflict-of-interest disclosure for the FIRST-pass
+arbiter selection itself. That is a legitimately larger protocol
+redesign (an entire second incentive-compatible subsystem, not a
+contract tweak) and is documented here as a real, intentional scope
+boundary rather than silently left unaddressed. What this contract does
+guarantee is that the arbiter is never the LAST word: appealing always
+escalates to GenLayer consensus, not to a more-trusted human. An earlier
+version of this contract routed the final appeal tier through the
+protocol owner directly (`resolve_appeal` was owner-gated); that was
+replaced specifically because a human backstop -- however disclosed --
+undercut the claim that GenLayer consensus is what ultimately produces
+a fair payout. The owner retains only non-monetary admin functions
+(default fee, treasury address, pause flag) and can never move a single
+bounty's escrowed funds.
 
 ======================================================================
 AVOIDING UNDETERMINED / LEADER-ROTATION OUTCOMES
@@ -919,17 +925,16 @@ class ProofBounty(gl.Contract):
 
     owner: Address
     """Protocol admin. Tunes the default fee, treasury address, and the
-    global pause flag -- and is ALSO the final, second-tier appeal
-    authority via `resolve_appeal` (see "ARBITER TRUST MODEL" below and
-    `get_settlement_transparency`). This is a real, disclosed trust
-    boundary, not a decorative one: the owner can move money, but ONLY
-    through `resolve_appeal`, ONLY on an attempt a party has affirmatively
-    appealed, and NEVER on an attempt whose reward has already been paid
-    by AI consensus (`ATTEMPT_WON` is terminal and structurally excluded
-    from `raise_dispute`'s live-state check -- see that check's comment).
-    The owner cannot silently reassign, freeze, or claw back a settlement
-    the AI consensus path already executed; it can only rule on money that
-    has not moved yet."""
+    global pause flag -- and can never move escrowed funds, resolve a
+    dispute, or otherwise touch a single bounty's money. That authority
+    belongs exclusively to each bounty's own creator/challenger/arbiter,
+    or, on appeal, to a SECOND, independent round of GenLayer validator
+    consensus (`resolve_appeal`, permissionless, decided by
+    `_collect_appeal_verdict` -- see "ARBITER TRUST MODEL" below and
+    `get_settlement_transparency`) -- never by this owner field. An
+    earlier version of this contract routed the final appeal tier through
+    the owner directly; that was replaced specifically so no human ever
+    makes the final, binding call on a disputed payout."""
 
     treasury: Address
     default_fee_bps: u256
@@ -1462,6 +1467,186 @@ parsable by a JSON parser without errors:
                 # A "partial" split of 0% or 100% is not actually partial;
                 # collapse to the corresponding unambiguous binary verdict
                 # instead of letting a degenerate split through.
+                verdict = VERDICT_REJECTED if payout_bps <= 0 else VERDICT_APPROVED
+
+        return {
+            "verdict": verdict,
+            "reasoning": reasoning,
+            "payout_bps": payout_bps,
+            "content_hash": content_hash,
+        }
+
+    def _collect_appeal_verdict(
+        self,
+        claim_text: str,
+        criteria: str,
+        evidence_requirements: str,
+        evidence_url: str,
+        arbiter_verdict: str,
+        arbiter_reasoning: str,
+        appeal_reason: str,
+    ) -> dict:
+        """
+        The final-tier appeal adjudication -- a SECOND, independent round
+        of GenLayer validator consensus, not a human owner's personal
+        judgment. Structurally identical to `_collect_verdict` (contract
+        fetches the live evidence itself, judges only the fetched content,
+        requires validator agreement), but the prompt additionally shows
+        the arbiter's ruling and reasoning plus the appellant's stated
+        objection, since a genuine appeal review should weigh why the
+        first-pass human ruling is being contested, not just re-run the
+        original question blind. The model is explicitly told this is the
+        FINAL word -- no further resubmission or appeal exists past this.
+
+        Kept as a separate method (not a parameterized `_collect_verdict`)
+        so the original, already-tested primary verification path's prompt
+        and behavior stay completely unchanged -- this only ever runs from
+        `resolve_appeal`.
+        """
+
+        def run_review() -> str:
+            try:
+                page_text = gl.nondet.web.render(evidence_url, mode="text")
+            except Exception as exc:
+                return json.dumps(
+                    {
+                        "verdict": VERDICT_NEEDS_REVISION,
+                        "reasoning": f"Evidence URL could not be fetched: {str(exc)[:200]}",
+                        "payout_bps": 0,
+                        "content_hash": "",
+                    },
+                    sort_keys=True,
+                )
+
+            if not page_text or not page_text.strip():
+                return json.dumps(
+                    {
+                        "verdict": VERDICT_NEEDS_REVISION,
+                        "reasoning": "Evidence URL returned no readable content.",
+                        "payout_bps": 0,
+                        "content_hash": "",
+                    },
+                    sort_keys=True,
+                )
+
+            if len(page_text) > WEB_FETCH_CHAR_LIMIT:
+                page_text = page_text[:WEB_FETCH_CHAR_LIMIT]
+
+            content_hash = _content_digest(page_text)
+
+            prompt = f"""
+You are the FINAL, binding appeal adjudicator for PROOFBOUNTY. A financial
+reward or bond is decided by your verdict, with no further appeal possible
+after this. You must judge using ONLY the fetched web content shown below
+-- never any prior belief about what the page ought to contain, and never
+the challenger's own description of their evidence.
+
+Claim under test:
+{claim_text}
+
+Precommitted proof criteria (the ONLY standard to judge against -- this was
+fixed before the challenger's evidence existed and cannot be changed now):
+{criteria}
+
+Acceptable evidence characteristics (context only, not itself a criterion):
+{evidence_requirements}
+
+Evidence URL that was fetched: {evidence_url}
+
+Fetched web page content (plain text, may be truncated):
+---
+{page_text}
+---
+End of fetched content.
+
+This case was already reviewed by a named human arbiter, whose ruling and
+reasoning are shown below, and then formally appealed by one of the
+parties. Weigh this context, but ultimately reach YOUR OWN independent
+conclusion from the fetched content above -- you are not bound by the
+arbiter's ruling and are not merely checking whether it was reasonable.
+
+Arbiter's ruling: {arbiter_verdict}
+Arbiter's stated reasoning: {arbiter_reasoning}
+Appellant's stated objection: {appeal_reason}
+
+Decide exactly one of five verdicts:
+- "APPROVED": the fetched content clearly and fully satisfies every proof
+  criterion.
+- "PARTIAL": the fetched content demonstrates real, concrete, and
+  substantial satisfaction of SOME but not all criteria.
+- "REJECTED": the fetched content clearly does NOT satisfy the criteria,
+  shows no substantial progress toward them, and no reasonable resubmission
+  of materially the same evidence would fix that.
+- "NEEDS_REVISION": kept for JSON-shape consistency with the primary
+  verification prompt, but there is no further resubmission possible at
+  this final stage -- only use this if the page is genuinely broken,
+  empty, or unreachable; it will be treated the same as
+  "INSUFFICIENT_EVIDENCE" (bond refunded, no penalty to either side).
+- "INSUFFICIENT_EVIDENCE": the fetched content is real, readable, and
+  on-topic, but does not itself confirm or contradict the criteria clearly
+  enough for a final, binding ruling either way.
+
+Respond using ONLY the following JSON format, nothing else. No markdown
+code fences, no commentary, no extra keys. Your output must be perfectly
+parsable by a JSON parser without errors:
+{{
+    "verdict": str,       // exactly one of "APPROVED", "PARTIAL", "REJECTED", "NEEDS_REVISION", "INSUFFICIENT_EVIDENCE"
+    "reasoning": str,      // one or two sentences, grounded ONLY in the fetched content above
+    "payout_bps": int      // ONLY meaningful when verdict is "PARTIAL": the challenger's
+                           // recommended share of the reward, in basis points out of 10000.
+                           // 0 for any other verdict.
+}}
+"""
+            raw_response = gl.nondet.exec_prompt(prompt)
+            raw_response = raw_response.replace("```json", "").replace("```", "").strip()
+
+            try:
+                parsed_for_bucket = json.loads(raw_response)
+                if parsed_for_bucket.get("verdict") == VERDICT_PARTIAL:
+                    raw_bps = int(parsed_for_bucket.get("payout_bps", 0))
+                    raw_bps = max(0, min(raw_bps, BPS_DENOMINATOR))
+                    parsed_for_bucket["payout_bps"] = _bucket_payout_bps(raw_bps)
+                parsed_for_bucket["content_hash"] = content_hash
+                raw_response = json.dumps(parsed_for_bucket, sort_keys=True)
+            except (json.JSONDecodeError, ValueError, TypeError, AttributeError):
+                pass
+
+            print(raw_response)
+            return raw_response
+
+        result = gl.eq_principle.prompt_comparative(
+            run_review,
+            principle=(
+                "The `verdict` field must be EXACTLY the same string. "
+                "The `reasoning` field is expected to differ in wording "
+                "between validators and must NOT be compared for exact "
+                "or near match. When `verdict` is "
+                '"PARTIAL", the `payout_bps` field must be EXACTLY the '
+                "same integer in both results (already rounded onto a "
+                "coarse discrete 500-bps bucket); otherwise `payout_bps` "
+                "is not compared at all. The `content_hash` field is a "
+                "fingerprint of the live page text each validator "
+                "independently fetched and is NOT expected to match "
+                "across validators -- never compare it, it is recorded "
+                "for evidence provenance only."
+            ),
+        )
+
+        parsed = json.loads(result)
+        verdict = parsed.get("verdict", "")
+        if verdict not in _VALID_VERDICTS:
+            verdict = VERDICT_NEEDS_REVISION
+        reasoning = _truncate(str(parsed.get("reasoning", "")), MAX_REASONING_LEN)
+        content_hash = _truncate(str(parsed.get("content_hash", "")), 32)
+
+        payout_bps = 0
+        if verdict == VERDICT_PARTIAL:
+            try:
+                payout_bps = int(parsed.get("payout_bps", 0))
+            except (TypeError, ValueError):
+                payout_bps = 0
+            payout_bps = max(0, min(payout_bps, BPS_DENOMINATOR))
+            if payout_bps <= 0 or payout_bps >= BPS_DENOMINATOR:
                 verdict = VERDICT_REJECTED if payout_bps <= 0 else VERDICT_APPROVED
 
         return {
@@ -2006,7 +2191,8 @@ parsable by a JSON parser without errors:
         arbiter's verdict and opens an `APPEAL_WINDOW_SECONDS` appeal
         window (`ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL`). Either party
         may `appeal_arbiter_resolution` before the window closes, escalating
-        to the protocol owner's final call via `resolve_appeal`. If nobody
+        to a second, independent round of GenLayer validator consensus via
+        `resolve_appeal` -- never a human's final call. If nobody
         appeals, anyone may permissionlessly call
         `finalize_arbiter_resolution` after the window closes to actually
         execute the payout. See ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL's
@@ -2127,14 +2313,15 @@ parsable by a JSON parser without errors:
         """
         Either the bounty's creator or the attempt's challenger may contest
         an arbiter's PENDING (not yet finalized) resolution before its
-        appeal window closes, escalating the final call to the protocol
-        owner via `resolve_appeal`. Requires posting an appeal bond of
-        EXACTLY the attempt's own `bond_amount` (reusing an amount already
-        meaningful to this specific attempt rather than inventing a new
-        protocol-wide constant) -- forfeited to the non-appealing party if
-        the owner's final ruling agrees with the arbiter (deterring
-        frivolous appeals), returned in full to the appellant if the owner
-        overturns it instead. See `resolve_appeal`.
+        appeal window closes, escalating the final call to a SECOND,
+        independent round of GenLayer validator consensus via
+        `resolve_appeal` -- not a human owner's personal judgment. Requires
+        posting an appeal bond of EXACTLY the attempt's own `bond_amount`
+        (reusing an amount already meaningful to this specific attempt
+        rather than inventing a new protocol-wide constant) -- forfeited to
+        the non-appealing party if that fresh consensus agrees with the
+        arbiter (deterring frivolous appeals), returned in full to the
+        appellant if it overturns the arbiter instead. See `resolve_appeal`.
         """
         bounty = self._get_bounty(bounty_id)
         attempt = self._get_attempt(bounty_id, attempt_index)
@@ -2160,78 +2347,85 @@ parsable by a JSON parser without errors:
         attempt.appeal_bond_deposited = sent
 
     @gl.public.write
-    def resolve_appeal(
-        self,
-        bounty_id: int,
-        attempt_index: int,
-        verdict: str,
-        resolution_note: str,
-        payout_bps: int,
-    ) -> None:
+    def resolve_appeal(self, bounty_id: int, attempt_index: int) -> str:
         """
-        Only the protocol owner may call this -- the final, second
-        resolution tier for an appealed arbiter decision. Same
-        `verdict`/`payout_bps` contract as `resolve_dispute`, but this
-        call executes immediately (there is nothing further to appeal to).
+        Permissionless -- anyone may call this once an attempt is under
+        appeal, mirroring `request_verification`'s own permissionless-
+        trigger design. This is the final resolution tier for an appealed
+        arbiter decision, and it is decided by a SECOND, independent round
+        of GenLayer validator consensus (`_collect_appeal_verdict`), not by
+        a human owner's personal judgment. No human ever makes the final,
+        binding call on a disputed, not-yet-settled payout in this
+        contract -- the only way a human ruling (the arbiter's) ever
+        determines an outcome is if neither party chooses to exercise
+        their available right to this fresh consensus review.
 
         The appeal bond posted in `appeal_arbiter_resolution` is returned
-        to the appellant if this ruling's economic outcome DIFFERS from
-        the arbiter's original pending verdict (the appeal succeeded), or
-        forfeited to the non-appealing counterparty if this ruling AGREES
-        with the arbiter (the appeal failed) -- computed automatically by
-        comparing verdicts/bucketed payouts, never by the owner having to
-        declare "uphold" or "overturn" themselves, which removes a place
-        that judgment call could be entered inconsistently with the actual
-        numbers being paid out.
+        to the appellant if this fresh consensus's economic conclusion
+        DIFFERS from the arbiter's original pending verdict (the appeal
+        succeeded), or forfeited to the non-appealing counterparty if it
+        AGREES with the arbiter (the appeal failed) -- computed
+        automatically by comparing verdicts/bucketed payouts via the same
+        `_human_verdict_matches_ai_outcome` helper used to detect arbiter
+        overrides elsewhere, never by a human declaring "uphold" or
+        "overturn" themselves.
 
-        On the trust model: the owner is already the sole trusted party
-        for this protocol's admin functions (fee, treasury, pause) and
-        never has authority over money it doesn't already have via this
-        appeal path -- extending that existing, disclosed trust boundary
-        to be the appeal backstop is a smaller, more honest surface than
-        inventing a new unstaked authority for this one purpose. A staked,
-        multi-arbiter appeal marketplace is a legitimate further evolution
-        but a materially larger protocol redesign than this pass covers;
-        documented here rather than silently left unaddressed.
+        If this fresh review itself can't reach a confident conclusion
+        (`NEEDS_REVISION`/`INSUFFICIENT_EVIDENCE` -- e.g. the evidence page
+        has since gone offline), the bond is refunded rather than
+        forfeited and the appeal is treated as having succeeded (an
+        arbiter's confident ruling that a second independent review can't
+        confirm is not a ruling that should stand) -- there is no further
+        resubmission cycle at this final stage.
+
+        Returns the fresh consensus verdict string.
         """
         bounty = self._get_bounty(bounty_id)
         attempt = self._get_attempt(bounty_id, attempt_index)
-        self._require_owner()
 
         if attempt.status != ATTEMPT_APPEALED:
             raise gl.vm.UserError("Attempt is not currently under appeal")
-        if verdict not in _VALID_ARBITER_VERDICTS:
-            raise gl.vm.UserError(f"verdict must be one of {_VALID_ARBITER_VERDICTS}")
-        if not resolution_note:
-            raise gl.vm.UserError(
-                "resolution_note must be non-empty -- every human ruling that can "
-                "move money must be accompanied by an on-chain, readable justification, "
-                "not a bare verdict code"
-            )
 
-        bucketed_bps = 0
-        if verdict == ARBITER_PARTIAL:
-            if payout_bps <= 0 or payout_bps >= BPS_DENOMINATOR:
-                raise gl.vm.UserError(
-                    "PARTIAL requires an explicit payout_bps strictly between 0 and "
-                    f"{BPS_DENOMINATOR} (e.g. 6000 for a 60% challenger share)"
-                )
-            bucketed_bps = _bucket_payout_bps(payout_bps)
+        # Copy every field the non-deterministic closure needs into plain
+        # locals before calling into it -- storage-backed objects cannot be
+        # read from inside a nondet block (same discipline as
+        # `request_verification`).
+        claim_text = bounty.claim_text
+        criteria = bounty.proof_criteria
+        evidence_requirements = bounty.evidence_requirements
+        evidence_url = attempt.evidence_url
+        pending_arbiter_verdict = attempt.pending_arbiter_verdict
+        pending_payout_bps = int(attempt.pending_payout_bps)
+        arbiter_reasoning = attempt.last_reasoning
+        appeal_reason = attempt.appeal_reason
 
-        appeal_succeeded = (
-            verdict != attempt.pending_arbiter_verdict
-            or bucketed_bps != int(attempt.pending_payout_bps)
+        verdict_info = self._collect_appeal_verdict(
+            claim_text, criteria, evidence_requirements, evidence_url,
+            pending_arbiter_verdict, arbiter_reasoning, appeal_reason,
         )
-        # If the owner's final ruling differs from the arbiter's pending
-        # one, that's itself a human-vs-human override regardless of what
-        # `resolve_dispute` already recorded against the AI's own verdict --
-        # flag it. If the owner instead agrees with the arbiter
-        # (`appeal_succeeded == False`), leave whatever `resolve_dispute`
-        # already determined untouched: that earlier comparison against the
-        # AI's verdict is still the accurate record of what actually
-        # happened to this attempt.
-        if appeal_succeeded:
-            attempt.human_verdict_overrode_ai = True
+        verdict = verdict_info["verdict"]
+        reasoning = verdict_info["reasoning"]
+        payout_bps = verdict_info["payout_bps"]
+        content_hash = verdict_info["content_hash"]
+
+        # Does this fresh, independent consensus conclusion match what the
+        # arbiter already ruled? If so the appeal FAILS (arbiter upheld);
+        # if not, it SUCCEEDS (arbiter overturned by GenLayer consensus,
+        # not by a human). Reuses the exact same comparison
+        # `resolve_dispute` uses to detect AI-vs-human divergence --
+        # here comparing the arbiter's ARBITER_* verdict against this
+        # fresh AI-vocabulary verdict.
+        arbiter_upheld = _human_verdict_matches_ai_outcome(
+            verdict, payout_bps, pending_arbiter_verdict, pending_payout_bps
+        )
+        appeal_succeeded = not arbiter_upheld
+
+        attempt.last_reasoning = reasoning
+        attempt.pending_arbiter_verdict = verdict
+        attempt.pending_payout_bps = u256(payout_bps if verdict == VERDICT_PARTIAL else 0)
+        if content_hash:
+            attempt.evidence_content_hash = content_hash
+            attempt.evidence_fetched_at = u256(self._now())
 
         # --- read + zero the appeal-bond ledger BEFORE any transfer ---
         appeal_bond = attempt.appeal_bond_deposited
@@ -2239,23 +2433,26 @@ parsable by a JSON parser without errors:
         counterparty = bounty.creator if appellant == attempt.challenger else attempt.challenger
         attempt.appeal_bond_deposited = u256(0)
 
-        attempt.last_reasoning = _truncate(resolution_note, MAX_REASONING_LEN)
-        attempt.pending_arbiter_verdict = verdict
-        attempt.pending_payout_bps = u256(bucketed_bps)
-
-        # --- execute the final verdict, same zero-then-transfer primitives ---
-        if verdict == ARBITER_REJECT:
+        # --- execute the final verdict, same zero-then-transfer primitives.
+        # No human ruling is recorded here (`via_human_ruling=False`) --
+        # this whole method's outcome was decided by GenLayer consensus. ---
+        if verdict == VERDICT_REJECTED:
             self._forfeit_attempt_bond(bounty, attempt, via_arbiter=True)
+        elif verdict in (VERDICT_NEEDS_REVISION, VERDICT_INSUFFICIENT_EVIDENCE):
+            self._refund_attempt_bond(attempt, ATTEMPT_INSUFFICIENT_EVIDENCE_FINAL)
         elif bounty.status != BOUNTY_OPEN:
             self._refund_attempt_bond(attempt, ATTEMPT_LOST_RACE)
         else:
-            self._settle_reward_to_winner(bounty, attempt, bucketed_bps, via_arbiter=True)
+            effective_bps = payout_bps if verdict == VERDICT_PARTIAL else 0
+            self._settle_reward_to_winner(bounty, attempt, effective_bps, via_arbiter=True)
             self._mark_other_attempts_lost_race(bounty_id, attempt_index)
-        self._record_settlement_provenance(attempt, via_human_ruling=True)
+        self._record_settlement_provenance(attempt, via_human_ruling=False)
 
         # --- appeal bond, strictly after everything else is settled ---
         if appeal_bond > 0:
             self._send_gen(appellant if appeal_succeeded else counterparty, appeal_bond)
+
+        return verdict
 
     @gl.public.write
     def force_default_resolution(self, bounty_id: int, attempt_index: int) -> None:
@@ -2421,25 +2618,29 @@ parsable by a JSON parser without errors:
     @gl.public.view
     def get_settlement_transparency(self) -> dict:
         """
-        Contract-wide, always-live evidence of how often this protocol's
-        human-ruling tier (arbiter + owner appeal) actually changes an
-        outcome AI consensus had already reached, versus how often AI
-        consensus alone is what decided an attempt's fate. See
+        Contract-wide, always-live evidence of how often an UNAPPEALED
+        arbiter ruling actually changes an outcome AI consensus had
+        already reached, versus how often AI consensus itself is what
+        decided an attempt's fate -- and `resolve_appeal`'s own consensus
+        resolutions count toward the AI side, not the human side, since
+        appealing always escalates to a second independent GenLayer
+        consensus round, never to a human's final word. See
         `attempts_settled_by_ai_consensus` / `attempts_settled_by_human_override`
         for exactly what each counter includes, and `Attempt.human_verdict_overrode_ai`
         for the per-attempt flag they're built from.
 
-        This does not, by itself, PREVENT the owner from ruling on an
-        appeal -- `resolve_appeal` remains a real, disclosed trust
-        boundary (see that method's docstring and the module docstring's
-        "ARBITER TRUST MODEL" section). What it does is make the actual
-        override rate a queryable on-chain fact instead of a claim anyone
-        has to take on faith, and it is structurally impossible for a
-        human ruling to affect these counters on an attempt whose reward
-        AI consensus already paid out (`ATTEMPT_WON` is excluded from
-        `raise_dispute`'s live-state check, so a completed AI-driven
-        payout can never retroactively become a "human override" -- it is
-        simply never eligible to be disputed once paid).
+        `attempts_settled_by_human_override` can only ever be incremented
+        by `finalize_arbiter_resolution` -- i.e. only when a diverging
+        arbiter ruling went UNAPPEALED. This makes the real, remaining
+        trust boundary precise: a human's word determines a payout only
+        when both parties decline their available right to a fresh
+        GenLayer consensus review, and exactly how often that happens is
+        this queryable on-chain fact, not a claim anyone has to take on
+        faith. It is structurally impossible for either counter to be
+        affected by an attempt whose reward AI consensus already paid out
+        (`ATTEMPT_WON` is excluded from `raise_dispute`'s live-state
+        check, so a completed AI-driven payout can never retroactively
+        become disputable at all).
         """
         ai = int(self.attempts_settled_by_ai_consensus)
         human = int(self.attempts_settled_by_human_override)
