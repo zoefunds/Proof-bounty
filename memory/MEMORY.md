@@ -1751,3 +1751,17 @@ covered by the offline mocked `gltest.direct` tests added alongside the
 fix, plus this round's live confirmation that the appeal path it shares
 its settlement engine with (`_settle_via_second_consensus`) works
 correctly end to end on real infrastructure.
+
+## Real-browser-wallet E2E manually verified by the project owner (2026-09-06)
+
+The one remaining gap the README/CONTRACT_REVIEW.md "Known gaps" section
+tracked (a full real-wallet end-to-end test) was closed by the user
+directly: they manually tested the live production frontend with a real,
+unmanaged browser wallet -- wallet connect, contract calls, and on-chain
+tx status updates all confirmed working. This is user-conducted manual
+verification, not an agent-automated/CI-driven test (no screenshot-
+captured MetaMask/WalletConnect popup flow exists in CI) -- README's
+Status table and `docs/CONTRACT_REVIEW.md`'s "Known gaps" section were
+both updated to reflect this distinction accurately rather than either
+overclaiming full automation or continuing to show "not yet run" once
+it demonstrably had been.

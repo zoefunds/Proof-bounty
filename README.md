@@ -92,7 +92,7 @@ architecture decision, and every audit round this project has been through
 | Notifications | ✅ Built — per-recipient, polling-based (not push/email/webhook) |
 | Independent off-chain evidence archive | ✅ Built — real SHA-256, SSRF-hardened, cross-checked against the on-chain fingerprint |
 | Arbiter/appeal override transparency | ✅ Built — `get_settlement_transparency()`; bounded structurally (can never touch an already-paid AI settlement) |
-| End-to-end test with a real, unmanaged browser wallet (MetaMask etc.) | ⏳ Not yet run |
+| End-to-end test with a real, unmanaged browser wallet (MetaMask etc.) | ✅ Manually verified by the project owner against the live frontend — wallet connect, contract calls, and on-chain tx status updates all confirmed working |
 
 **Live contract address:** `0x5EfaD781bf95e075B6b52E852D3815315b639637` (GenLayer StudioNet, deployed 2026-09-06 — the 8th deployment of this project; see `memory/MEMORY.md` for why the first seven were retired)
 
