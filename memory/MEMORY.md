@@ -21,11 +21,11 @@ this table immediately after every redeploy, never leave it stale.**
 
 | | |
 |---|---|
-| **Live contract address** | `0x5EfaD781bf95e075B6b52E852D3815315b639637` (8th deployment, 2026-09-06) |
-| **Does the LIVE bytecode match `contracts/proof_bounty.py` right now?** | **YES — confirmed via `genlayer code` diff (byte-for-byte match against source), including the "Closing the remaining GenLayer-fit gap" fix: `finalize_arbiter_resolution` now runs a mandatory second GenLayer consensus round (`_settle_via_second_consensus`, shared with `resolve_appeal`) instead of directly executing the arbiter's stored ruling — no human ruling ever settles a payout, appealed or not.** |
-| **Database state** | Both local dev Postgres and production Postgres were FULLY TRUNCATED on this redeploy (`bounties`, `attempts`, `reputation`, `activity_events`, `notifications`, `evidence_archives`, all restarted at identity 0; `indexer_state` reset to `last_bounty_count=0`) — explicit user instruction, done only after confirming the address was live everywhere (Fly secret + frontend/backend redeploys). Currently populated with 5 real bounties from a completed 4-test live product-test round against this 8th deployment (see "Eighth deployment" section below). |
-| **Latest test round result** | All 4 product tests (A–D) completed against the 8th deployment with clean final on-chain state and no unresolved errors on the explorer. `get_settlement_transparency()`: `attempts_settled_by_ai_consensus: 4`, `attempts_settled_by_human_override: 0` — every settled outcome this round was genuinely GenLayer-decided. Full dispute/arbiter/appeal chain re-exercised, including `resolve_appeal` overriding a human arbiter's ruling. The 3 structurally time-gated methods (`claim_creator_timeout`, `finalize_arbiter_resolution`, `force_default_resolution`) remain intentionally untested live this round (forcing them early would revert) — `finalize_arbiter_resolution`'s new consensus-driven logic is covered instead by the offline mocked tests added in the prior fix. |
-| **Retired addresses — never use these** | `0x48958AD558F32044196aBa3EEb013A19e8c142D6` (1st — `get_contract_balance`/`resolve_dispute` bugs), `0x890fE7ca02b277aC883B430FE73a50987F73419B` (2nd — those fixed, pre-dates settlement-DoS/evidence-manifest/appeal/deadline fixes), `0x9A2bF6ef636070CaeE07E325835a85C71EC91c71` (3rd — had settlement-DoS/appeal/evidence-manifest fixes but predated `INSUFFICIENT_EVIDENCE`, the DNS-rebind fix, and the evidence-archive hash cross-check), `0x4b8b06e93aD3e06F29a4491844904743B6d9a0b2` (4th — had all fixes through the evidence-archive hash cross-check and the `resolve_appeal` live verification), `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (5th — had the arbiter-bounding source changes written but not yet deployed when it was superseded), `0x330Ac647fb4001d557B1De3692c454142e440079` (6th — superseded by the appeal-tier redesign making `resolve_appeal` fully permissionless and GenLayer-consensus-driven), `0x958FdD06a182db9e60181E0359E0E4146839c163` (7th — superseded by the "Closing the remaining GenLayer-fit gap" fix, making `finalize_arbiter_resolution` also run a mandatory second GenLayer consensus round instead of directly executing an unappealed arbiter's ruling) |
+| **Live contract address** | `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` (10th deployment, 2026-09-07) |
+| **Does the LIVE bytecode match `contracts/proof_bounty.py` right now?** | **YES — confirmed via `genlayer code` diff (byte-for-byte match against source), including the `Attempt.rejection_counted` fix that closes the `attempts_rejected` double-count bug found on the 9th deployment.** |
+| **Database state** | Both local dev Postgres and production Postgres were FULLY TRUNCATED on this redeploy, done only after confirming the address was live everywhere (Fly secret + frontend/backend redeploys). Currently populated with 5 real bounties from a completed 4-test live product-test round against this 10th deployment (see "Tenth deployment" section below). |
+| **Latest test round result** | All 4 product tests (A–D) completed against the 10th deployment with clean final on-chain state, zero unresolved errors on the explorer, AND — for the first time this session — zero known contract bugs discovered. `get_settlement_transparency()`: `attempts_settled_by_ai_consensus: 4`, `attempts_settled_by_human_override: 0`. The `attempts_rejected` reputation fix was confirmed correct live in both scenarios it was designed for (direct-rejection-then-forfeit, and dispute/appeal-path rejection). |
+| **Retired addresses — never use these** | `0x48958AD558F32044196aBa3EEb013A19e8c142D6` (1st — `get_contract_balance`/`resolve_dispute` bugs), `0x890fE7ca02b277aC883B430FE73a50987F73419B` (2nd — those fixed, pre-dates settlement-DoS/evidence-manifest/appeal/deadline fixes), `0x9A2bF6ef636070CaeE07E325835a85C71EC91c71` (3rd — had settlement-DoS/appeal/evidence-manifest fixes but predated `INSUFFICIENT_EVIDENCE`, the DNS-rebind fix, and the evidence-archive hash cross-check), `0x4b8b06e93aD3e06F29a4491844904743B6d9a0b2` (4th — had all fixes through the evidence-archive hash cross-check and the `resolve_appeal` live verification), `0xf3799B2Fe2C44f7f3A521441Ccd57DFb9B8fb890` (5th — had the arbiter-bounding source changes written but not yet deployed when it was superseded), `0x330Ac647fb4001d557B1De3692c454142e440079` (6th — superseded by the appeal-tier redesign making `resolve_appeal` fully permissionless and GenLayer-consensus-driven), `0x958FdD06a182db9e60181E0359E0E4146839c163` (7th — superseded by the "Closing the remaining GenLayer-fit gap" fix, making `finalize_arbiter_resolution` also run a mandatory second GenLayer consensus round instead of directly executing an unappealed arbiter's ruling), `0x5EfaD781bf95e075B6b52E852D3815315b639637` (8th — superseded by the reward-lock/appeal-bond-precision/timeout-visibility review fixes), `0xaC3F31Ce3fBd41643539f9DD730eaC57aedcf4D3` (9th — superseded by the `attempts_rejected` double-count fix) |
 
 A second, independent audit pass specifically flagged the PREVIOUS version
 of this block as contradicting `docs/DEPLOYMENT.md` (which already had the
@@ -97,7 +97,7 @@ in the same breath**, before doing anything else.
 **This section describes an early point in the project's history. For the
 CURRENT line count, method count, and lint result, see the "⚠️ CURRENT
 DEPLOYMENT STATE" table at the top of this file and `README.md`'s Status
-table — as of the 8th deployment: 2,820 lines, 33 public methods (19
+table — as of the 9th deployment: 2,890 lines, 33 public methods (19
 write / 14 view), `genvm-lint` clean.**
 
 `/Users/macbook/proof-bounty/contracts/proof_bounty.py` — **1,776 lines**
@@ -1765,3 +1765,179 @@ Status table and `docs/CONTRACT_REVIEW.md`'s "Known gaps" section were
 both updated to reflect this distinction accurately rather than either
 overclaiming full automation or continuing to show "not yet run" once
 it demonstrably had been.
+
+## Team review: reward-lock, appeal-bond precision, timeout visibility (2026-09-06/07)
+
+An external team review flagged three concrete gaps before the project
+could be accepted: "keep the reward locked while any dispute or appeal
+can still resolve, preserve the appeal bond as an exact integer, and
+show the timeout action only after the contract's grace period." All
+three were real, confirmed bugs, not false alarms -- user's direction:
+"Let us fix and solve everything."
+
+**Bug 1 -- real contract bug, reward could be reclaimed mid-dispute.**
+`claim_creator_timeout` only checked `bounty.status == BOUNTY_OPEN` and
+the grace period, but `raise_dispute`/`resolve_dispute`/
+`appeal_arbiter_resolution` never touch `bounty.status` -- it stays OPEN
+throughout a dispute. Since the 2-day appeal window alone can outlast
+the 24h `VERIFICATION_GRACE_SECONDS` buffer, a creator could reclaim the
+reward while a dispute was still actively resolving, potentially racing
+funds out from under an arbiter/GenLayer-consensus ruling that might
+still award them to the disputing challenger. Fixed with a new explicit
+whitelist, `_ATTEMPT_DISPUTE_IN_PROGRESS_STATES` (DISPUTED,
+ARBITER_RESOLVED_PENDING_APPEAL, APPEALED), checked in
+`claim_creator_timeout` via a bounded scan (same pattern
+`_mark_other_attempts_lost_race` already uses). Regression test:
+`test_claim_creator_timeout_rejects_while_dispute_is_still_resolving`
+(`gltest.direct`, time-warped past both windows) -- proves the reward
+stays locked mid-dispute AND unlocks correctly once the dispute actually
+resolves to a non-winning outcome.
+
+**Bug 2 -- real frontend bug, appeal bond not preserved exactly.**
+`AttemptCard.tsx`'s `handleAppeal` built the transaction value via
+`toGenWei(String(Number(attempt.bond_amount) / 1e18))` -- round-tripping
+an already-exact wei integer through a lossy JS `Number` conversion.
+Every real bond amount exceeds `Number.MAX_SAFE_INTEGER`
+(2^53 - 1 = 9,007,199,254,740,991), so this could drift by a few wei,
+and since the contract requires an EXACT match, even a 1-wei drift would
+make a legitimate appeal revert. Fixed to `BigInt(attempt.bond_amount)`
+directly, matching how `accept_bounty` already does it elsewhere in the
+app (`app/bounty/[id]/page.tsx`). Proven with a deliberately non-round
+value (234,567,891,234,567,891 wei): the old construction produced
+234,567,891,234,567,900 -- a real 9-wei drift. Two regression checks:
+`test_appeal_bond_is_preserved_as_an_exact_integer` (contract-side,
+off-by-one-wei rejected in both directions, exact amount preserved --
+**ran live against real StudioNet, passed, 284s**) and
+`scripts/14-regression-appeal-bond-and-timeout.mjs` (imports the real
+frontend `format.ts` functions directly, documents the old drift, proves
+the new fix).
+
+**Bug 3 -- real frontend bug, timeout button shown too early.**
+`bounty/[id]/page.tsx`'s `canClaimTimeout` used deadline-only expiry
+(`isExpired(bounty.deadline)`), not `deadline + VERIFICATION_GRACE_SECONDS`
+(24h) -- so the button appeared and was clickable a full day before the
+contract would actually accept the call, and clicking it would revert.
+Fixed by adding a `VERIFICATION_GRACE_SECONDS` constant to
+`lib/format.ts` (documented as needing to stay in sync with the
+contract's own constant) and gating the button on `now >= deadline +
+VERIFICATION_GRACE_SECONDS` via the existing `useNow()` hook. Covered by
+the same regression script as Bug 2 (boundary-tested to the second: just
+before, exactly at, and just after the grace deadline).
+
+All three fixes verified: `genvm-lint` clean (33 methods, unchanged
+shape), full offline `gltest.direct` suite passes, frontend
+`tsc --noEmit` and `eslint` both clean. This is the source that went
+live on the 9th deployment -- see below.
+
+## Ninth deployment (0xaC3F31Ce3fBd41643539f9DD730eaC57aedcf4D3) -- the three review fixes go live, a NEW bug found live and fixed (2026-09-06/07)
+
+The three review fixes above were redeployed by the user. Verified
+matching source via `genlayer code` diff (byte-for-byte clean), address
+propagated everywhere (Fly secret + redeploy, Vercel env + redeploy,
+scripts/docs/env files), both databases truncated only after confirming
+the address was live everywhere via a direct on-chain read
+(`get_bounty_counter` on the new address, not just the backend's own
+`/health`, which was independently reporting its own internal daily-
+budget exhaustion from cumulative session usage -- confirmed via a
+direct `genlayer-js` read that this did NOT affect real StudioNet calls).
+
+Ran the same 4-product-test structure as prior rounds. Tests A and C
+completed with the now-familiar transient-hiccup-then-clean-retry
+pattern (a `request_verification` leader execution genuinely reverted
+once on Test A, confirmed via a fresh on-chain read to have left state
+untouched, then a clean retry produced APPROVED/100% payout). Test D2
+hit a genuine client-side gateway error (`Unexpected token '<'... is not
+valid JSON` -- an HTML error page instead of a JSON RPC response) whose
+retry then correctly reverted with `"Attempt must be in SUBMITTED
+status"` -- proving the ORIGINAL gateway-erroring call had actually
+succeeded on-chain and the client simply couldn't observe its receipt;
+nothing was ever left broken.
+
+**A real, previously-undetected bug was found mid-round (Test B), not
+from a retry/network artifact this time** -- Test B ran with ZERO
+retries or errors of any kind, yet `get_reputation` read
+`attempts_rejected: 2` for a challenger with exactly one rejected
+attempt. (An earlier session round hit the same symptom and misdiagnosed
+it as a testing-methodology artifact from interleaved retries -- this
+clean reproduction proved that diagnosis wrong and pointed at the real
+contract logic instead.) Root cause: `request_verification` increments
+`attempts_rejected` the moment an attempt first reaches REJECTED_FINAL
+(both its direct-REJECTED branch and its NEEDS_REVISION-exhaustion
+branch already did this), but `_forfeit_attempt_bond` -- called from
+`claim_bond_forfeiture`, whose OWN precondition requires the attempt
+already be REJECTED_FINAL, i.e. already counted -- ALSO unconditionally
+incremented the same counter for the same attempt. Every ordinary
+REJECTED-then-forfeited attempt (the single most common rejection path
+in the whole contract) was silently double-counted. The dispute/appeal
+tier's REJECTED branch (via the shared `_settle_via_second_consensus`)
+shares the same helper and had the identical exposure.
+
+Fixed with a new `Attempt.rejection_counted: bool` field, set the first
+time the strike is charged and checked at all three increment sites
+(guarding `_forfeit_attempt_bond` and both `request_verification`
+branches) so a given attempt can only ever be charged once, however many
+states/paths it passes through. Exposed in `get_attempt`'s dict too
+(matching `human_verdict_overrode_ai`'s transparency precedent).
+Regression test `test_attempts_rejected_is_not_double_counted_across_reject_then_forfeit`
+added and confirmed to genuinely catch the bug (temporarily reverted the
+contract fix via `git stash` and re-ran the test -- failed as expected
+with `KeyError: 'rejection_counted'`, then restored the fix and
+re-confirmed green). Also confirmed working correctly live during Test
+D2's real rejection (`attempts_rejected: 1`, not 2).
+
+**This fix is source-only as of this entry -- NOT yet redeployed.**
+Unlike the three review-driven bugs above, this one does not cause any
+reverted/errored transaction (every affected transaction still succeeds
+normally), so it never appeared as an explorer error and did not block
+completing this test round on the current 9th deployment. It does mean
+`attempts_rejected` reputation counts on bounties 1 and 4 of this
+deployment are inflated by one each until the next redeploy -- flagged
+to the user, not silently left as a known-wrong number.
+
+Full round result: `get_settlement_transparency()` after all 4 tests --
+`attempts_settled_by_ai_consensus: 4`, `attempts_settled_by_human_override: 0`,
+5 bounties total, zero unresolved errors left on the explorer.
+
+## Tenth deployment (0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1) -- the rejection-counting fix goes live, confirmed correct in both scenarios (2026-09-07)
+
+The `Attempt.rejection_counted` fix above was redeployed by the user.
+Verified matching source via `genlayer code` diff (byte-for-byte clean),
+address propagated everywhere, both databases truncated only after
+confirming the address was live everywhere via a direct on-chain read.
+
+Ran the same 4-product-test structure. Test A hit an unusually long
+stretch of real GenLayer consensus disagreement -- the evidence page
+(GenLayer's own "how GenLayer works" docs page) genuinely split
+validators 2-1 across APPROVED/PARTIAL(50%)/PARTIAL(60%) on a legitimately
+ambiguous claim, producing three consecutive UNDETERMINED results (each
+confirmed via a fresh on-chain read to have changed nothing) before a
+resubmission to a more on-topic page (`core-concepts/optimistic-democracy`)
+and further retries finally converged on a real APPROVED/100% payout.
+One `submit_evidence` call correctly reverted with "Attempt is not
+awaiting an evidence submission right now" while a verification was
+still mid-flight (UNDETERMINED, not yet resolved) -- a real, correct
+on-chain guard, not a bug. `get_contract_balance` also showed a
+transient ~0.2 GEN residual immediately after settlement that resolved
+to 0 on a re-read ~20s later -- confirmed as pure EVM-bridge transfer
+propagation lag (the escrow ledger fields themselves -- `reward_deposited`,
+both attempts' `bond_deposited` -- were already correctly zeroed
+immediately), not a stuck-funds issue.
+
+**The rejection-counting fix confirmed correct live in BOTH scenarios
+it was designed for**: Test B's direct `request_verification` ->
+exhausted-NEEDS_REVISION -> `claim_bond_forfeiture` path read
+`attempts_rejected: 1` (previously would have read 2); Test C's
+dispute/appeal path -- challenger disputes from ACCEPTED (never
+previously REJECTED_FINAL), arbiter APPROVEs, creator appeals,
+`resolve_appeal`'s fresh consensus REJECTS instead -- also correctly
+read `attempts_rejected: 1`, proving the fix handles the case where the
+strike is charged for the FIRST time inside `_forfeit_attempt_bond`
+itself (not `request_verification`), not just the case tested offline.
+Test D2 also settled with a clean, correct `attempts_rejected: 1` on the
+first attempt, no retries needed.
+
+Full round result: `get_settlement_transparency()` after all 4 tests --
+`attempts_settled_by_ai_consensus: 4`, `attempts_settled_by_human_override: 0`,
+5 bounties total, zero unresolved errors left on the explorer, and (for
+the first time this session) zero known contract bugs discovered during
+or after the round.

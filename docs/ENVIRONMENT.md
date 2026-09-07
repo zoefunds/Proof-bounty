@@ -11,7 +11,7 @@ second look is `NEXT_PUBLIC_REOWN_PROJECT_ID`, covered below.
 
 | Variable | Purpose | Production value |
 |---|---|---|
-| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | The deployed contract address | `0x5EfaD781bf95e075B6b52E852D3815315b639637` |
+| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | The deployed contract address | `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` |
 | `NEXT_PUBLIC_GENLAYER_NETWORK` | Which GenLayer chain to target | `studionet` |
 | `NEXT_PUBLIC_GENLAYER_RPC_URL` | RPC endpoint for direct contract reads/writes | `https://studio.genlayer.com/api` |
 | `NEXT_PUBLIC_API_URL` | Backend indexer/API base URL | `https://proofbounty-api.fly.dev` |
@@ -37,7 +37,7 @@ done in this repo, pointing at production values by default).
 |---|---|---|---|
 | `DATABASE_URL` | Postgres connection string | Yes | Auto-set by `fly postgres attach` |
 | `PORT` | HTTP listen port | No | `8080` |
-| `PROOFBOUNTY_CONTRACT_ADDRESS` | Contract to index | No (but treated as a secret via `fly secrets` for convenience — no harm either way) | `0x5EfaD781bf95e075B6b52E852D3815315b639637` |
+| `PROOFBOUNTY_CONTRACT_ADDRESS` | Contract to index | No (but treated as a secret via `fly secrets` for convenience — no harm either way) | `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` |
 | `GENLAYER_RPC_URL` | GenLayer RPC endpoint the indexer reads from | No | `https://studio.genlayer.com/api` |
 | `INDEXER_POLL_INTERVAL_MS` | How often the indexer polls the contract | No | `20000` |
 | `CORS_ORIGIN` | Allowed frontend origin | No | `https://proof-bounty.vercel.app` |

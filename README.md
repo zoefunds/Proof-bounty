@@ -83,18 +83,18 @@ architecture decision, and every audit round this project has been through
 
 | Piece | State |
 |---|---|
-| Intelligent Contract (`contracts/proof_bounty.py`, 2,820 lines, 33 public methods) | ✅ Deployed live on StudioNet, deployed bytecode confirmed matching source via `genlayer code` |
+| Intelligent Contract (`contracts/proof_bounty.py`, 2,890 lines, 33 public methods) | ✅ Deployed live on StudioNet, deployed bytecode confirmed matching source via `genlayer code` |
 | Frontend (`apps/web`, Next.js 15 App Router) | ✅ Deployed — [proof-bounty.vercel.app](https://proof-bounty.vercel.app) |
 | Backend indexer/API (`apps/api`, Fastify + Postgres) | ✅ Deployed — [proofbounty-api.fly.dev](https://proofbounty-api.fly.dev) |
-| Automated test suite (`tests/integration/`, pytest/`gltest`) | ✅ 34 tests — 32 pass deterministically offline, 2 depend on live web fetch + LLM output (`request_verification` full lifecycle, and `resolve_appeal`'s GenLayer-consensus resolution) |
-| Manual live-chain verification scripts (`scripts/`) | ✅ 14 scripts (`00`–`13`), all run against live StudioNet with realistic content |
+| Automated test suite (`tests/integration/`, pytest/`gltest`) | ✅ 37 tests — 35 pass deterministically offline, 2 depend on live web fetch + LLM output (`request_verification` full lifecycle, and `resolve_appeal`'s GenLayer-consensus resolution) |
+| Manual live-chain verification scripts (`scripts/`) | ✅ 15 scripts (`00`–`14`) — `00`–`13` all run against live StudioNet with realistic content, `14` is an offline logic regression check (no network) |
 | CI (`.github/workflows/ci.yml`) | ✅ Contract lint, offline test subset, frontend/backend lint+typecheck+build, dependency audit on every push |
 | Notifications | ✅ Built — per-recipient, polling-based (not push/email/webhook) |
 | Independent off-chain evidence archive | ✅ Built — real SHA-256, SSRF-hardened, cross-checked against the on-chain fingerprint |
 | Arbiter/appeal override transparency | ✅ Built — `get_settlement_transparency()`; bounded structurally (can never touch an already-paid AI settlement) |
 | End-to-end test with a real, unmanaged browser wallet (MetaMask etc.) | ✅ Manually verified by the project owner against the live frontend — wallet connect, contract calls, and on-chain tx status updates all confirmed working |
 
-**Live contract address:** `0x5EfaD781bf95e075B6b52E852D3815315b639637` (GenLayer StudioNet, deployed 2026-09-06 — the 8th deployment of this project; see `memory/MEMORY.md` for why the first seven were retired)
+**Live contract address:** `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` (GenLayer StudioNet, deployed 2026-09-07 — the 10th deployment of this project; see `memory/MEMORY.md` for why the first nine were retired)
 
 ## How it works
 

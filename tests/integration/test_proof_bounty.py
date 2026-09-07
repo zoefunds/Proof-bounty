@@ -348,6 +348,186 @@ def test_claim_creator_timeout_rejects_wrong_caller(accounts):
     assert not tx_execution_succeeded(tx)
 
 
+def test_claim_creator_timeout_rejects_while_dispute_is_still_resolving(
+    direct_vm, direct_deploy, direct_accounts
+):
+    """
+    Regression test for a real bug: `raise_dispute`/`resolve_dispute`/
+    `appeal_arbiter_resolution` never touch `bounty.status` (it stays
+    BOUNTY_OPEN throughout a dispute), and a 2-day appeal window alone
+    can easily outlast the 24h `VERIFICATION_GRACE_SECONDS` buffer. Before
+    the fix, `claim_creator_timeout` only checked `bounty.status ==
+    BOUNTY_OPEN` and the grace period -- so a creator could reclaim the
+    reward while an attempt was still ARBITER_RESOLVED_PENDING_APPEAL /
+    APPEALED / DISPUTED, racing (and potentially stealing funds out from
+    under) a dispute a fresh arbiter ruling or GenLayer consensus review
+    might still award to the disputing challenger.
+
+    Two-part proof:
+    1. While the attempt sits in ARBITER_RESOLVED_PENDING_APPEAL (a
+       dispute actively resolving), `claim_creator_timeout` must be
+       REJECTED even though deadline + grace has long since passed.
+    2. Once that same dispute genuinely resolves to an outcome that
+       does NOT settle the bounty (the arbiter's ruling, taken through
+       the mandatory fresh GenLayer consensus check, is REJECTED --
+       bounty stays OPEN with no winner), `claim_creator_timeout` must
+       then SUCCEED -- proving the fix blocks exactly the in-flight
+       window, not permanently.
+
+    Runs via `gltest.direct` (deterministic, offline, real elapsed-time
+    control) since it needs to advance past both the grace period and the
+    2-day appeal window -- `gl.message_raw["datetime"]` patched directly,
+    same technique as the sibling zero-bond tests in this file. Mocks the
+    fresh consensus round `finalize_arbiter_resolution` now runs (see
+    those same sibling tests for why the mocked LLM response is wrapped
+    in markdown code fences).
+    """
+    import sys
+    import json
+    import datetime as dt
+
+    treasury = direct_accounts[1]
+    arbiter = direct_accounts[2]
+    challenger = direct_accounts[3]
+    creator = direct_accounts[0]
+    contract = direct_deploy("proof_bounty.py", treasury, 250)
+
+    direct_vm.value = 3 * 10**18
+    with direct_vm.prank(creator):
+        contract.create_bounty(
+            "Prove the docs contradiction", "The docs at X claim Y but the code does Z.",
+            "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter, ONE_HOUR, 0,
+        )
+    direct_vm.value = 0
+
+    with direct_vm.prank(challenger):
+        contract.accept_bounty(0)
+        contract.raise_dispute(0, 0, "Escalating before any AI verification.")
+    with direct_vm.prank(arbiter):
+        contract.resolve_dispute(0, 0, "APPROVE", "Arbiter reviewed and approves.", 0)
+
+    attempt = contract.get_attempt(0, 0)
+    assert attempt["status_label"] == "ARBITER_RESOLVED_PENDING_APPEAL"
+
+    # Advance past BOTH the deadline+grace window and the 2-day appeal
+    # window -- the dispute is still "PENDING_APPEAL", i.e. actively
+    # resolvable, the whole time.
+    gl = sys.modules["genlayer.gl"]
+    future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=3)
+    gl.message_raw["datetime"] = future.isoformat().replace("+00:00", "Z")
+
+    bounty_before = contract.get_bounty(0)
+    with direct_vm.prank(creator), direct_vm.expect_revert():
+        contract.claim_creator_timeout(0)
+    bounty_after_rejected_attempt = contract.get_bounty(0)
+    assert bounty_after_rejected_attempt["reward_deposited"] == bounty_before["reward_deposited"], (
+        "reward must stay locked while the dispute is still resolving -- the rejected "
+        "claim_creator_timeout call must not have moved any funds"
+    )
+
+    # Now let the dispute actually resolve, to a REJECTED-shaped outcome
+    # that leaves the bounty OPEN with no winner (mocked fresh consensus
+    # disagrees with the arbiter's APPROVE).
+    direct_vm.mock_web(r".*", {"status": 200, "body": "Mocked evidence page content."})
+    direct_vm.mock_llm(
+        r".*",
+        "```json\n" + json.dumps({
+            "verdict": "REJECTED", "reasoning": "Fresh consensus disagrees with the arbiter.", "payout_bps": 0,
+        }) + "\n```",
+    )
+    contract.finalize_arbiter_resolution(0, 0)
+
+    attempt_final = contract.get_attempt(0, 0)
+    assert attempt_final["status_label"] == "BOND_FORFEITED"
+    bounty_mid = contract.get_bounty(0)
+    assert bounty_mid["status_label"] == "OPEN", "no attempt won -- the bounty itself is still open"
+
+    # The dispute is no longer in flight -- claim_creator_timeout must
+    # now succeed.
+    with direct_vm.prank(creator):
+        contract.claim_creator_timeout(0)
+    bounty_final = contract.get_bounty(0)
+    assert bounty_final["status_label"] == "EXPIRED_REFUNDED"
+    assert bounty_final["reward_deposited"] == 0
+
+
+def test_attempts_rejected_is_not_double_counted_across_reject_then_forfeit(
+    direct_vm, direct_deploy, direct_accounts
+):
+    """
+    Regression test for a real bug found while running a live product-test
+    round (a challenger's `attempts_rejected` read 2 for a single rejected
+    attempt, with zero retries or network errors involved -- ruling out a
+    testing artifact). Root cause: `request_verification` increments
+    `attempts_rejected` the moment an attempt first reaches REJECTED_FINAL
+    (either a direct REJECTED verdict, or exhausting `max_revisions` on
+    NEEDS_REVISION), and `_forfeit_attempt_bond` -- called from
+    `claim_bond_forfeiture`, whose own precondition requires the attempt
+    already be REJECTED_FINAL -- ALSO unconditionally incremented the same
+    counter for the same attempt, double-charging the challenger's
+    reputation on the ordinary, single-path REJECTED -> forfeited flow
+    every rejected attempt eventually takes.
+
+    Fixed with `Attempt.rejection_counted`, a guard flag set the first
+    time the strike is charged and checked at all three increment sites
+    (`request_verification`'s two rejection branches,
+    `_forfeit_attempt_bond`) so the same attempt can never be charged
+    twice, however many paths/states it passes through.
+
+    Mocks the fresh consensus round `request_verification` runs (real
+    REJECTED verdict) -- see the sibling tests in this file for why the
+    mocked LLM response is wrapped in markdown code fences.
+    """
+    import json
+
+    treasury = direct_accounts[1]
+    arbiter = direct_accounts[2]
+    challenger = direct_accounts[3]
+    creator = direct_accounts[0]
+    contract = direct_deploy("proof_bounty.py", treasury, 250)
+
+    direct_vm.value = 2 * 10**18
+    with direct_vm.prank(creator):
+        contract.create_bounty(
+            "Prove the docs contradiction", "The docs at X claim Y but the code does Z.",
+            "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter, ONE_HOUR, 0,
+        )
+    direct_vm.value = 0
+
+    with direct_vm.prank(challenger):
+        contract.accept_bounty(0)
+        contract.submit_evidence(0, 0, "https://example.com/evidence", "Evidence description.")
+
+    direct_vm.mock_web(r".*", {"status": 200, "body": "Mocked evidence page content."})
+    direct_vm.mock_llm(
+        r".*",
+        "```json\n" + json.dumps({
+            "verdict": "REJECTED", "reasoning": "Does not satisfy the criteria.", "payout_bps": 0,
+        }) + "\n```",
+    )
+    with direct_vm.prank(challenger):
+        contract.request_verification(0, 0)
+
+    attempt_rejected = contract.get_attempt(0, 0)
+    assert attempt_rejected["status_label"] == "REJECTED_FINAL"
+    assert attempt_rejected["rejection_counted"] is True
+    rep_after_reject = contract.get_reputation(challenger)
+    assert rep_after_reject["attempts_rejected"] == 1, (
+        "the first (and only, so far) rejection must charge exactly one strike"
+    )
+
+    with direct_vm.prank(creator):
+        contract.claim_bond_forfeiture(0, 0)
+
+    attempt_forfeited = contract.get_attempt(0, 0)
+    assert attempt_forfeited["status_label"] == "BOND_FORFEITED"
+    rep_after_forfeit = contract.get_reputation(challenger)
+    assert rep_after_forfeit["attempts_rejected"] == 1, (
+        "claim_bond_forfeiture must NOT charge a second strike for the same attempt -- "
+        "this is the exact regression: before the fix, this read 2"
+    )
+
+
 # ============================================================================
 # Disputes
 # ============================================================================
@@ -775,6 +955,75 @@ def test_appeal_arbiter_resolution_success_reaches_appealed_status(accounts):
         args=[0, 0, "Also appealing"]
     ).transact(value=1 * 10**18, wait_transaction_status=TransactionStatus.FINALIZED)
     assert not tx_execution_succeeded(tx_double)
+
+
+def test_appeal_bond_is_preserved_as_an_exact_integer(accounts):
+    """
+    Regression test for a real bug: the frontend used to construct the
+    appeal-bond transaction value via `toGenWei(String(Number(bond_amount)
+    / 1e18))` -- round-tripping an already-exact wei integer through a
+    JS `Number`/decimal-string conversion. Any real bond amount (all
+    comfortably exceed `Number.MAX_SAFE_INTEGER`, 2^53-1) can drift by a
+    tiny amount through that round trip, and since this contract requires
+    the posted value to EXACTLY equal `attempt.bond_amount` (deliberately,
+    to keep the appeal-bond amount unambiguous rather than silently
+    rounded), even a 1-wei drift would make a legitimate appeal revert.
+    Fixed on the frontend to `BigInt(attempt.bond_amount)` directly (no
+    lossy round trip); this test proves the CONTRACT side of that
+    contract, using a deliberately non-round bond amount that a lossy
+    float round-trip would very likely have corrupted.
+    """
+    treasury = accounts[1].address
+    arbiter_account = accounts[2]
+    arbiter = arbiter_account.address
+    challenger = accounts[3]
+    creator = accounts[0]
+    # Deliberately non-round, far past Number.MAX_SAFE_INTEGER (2^53-1 =
+    # 9_007_199_254_740_991) -- not a multiple of any clean power of 10,
+    # so a Number()-based round-trip would very likely mangle it.
+    exact_bond = 234_567_891_234_567_891
+    contract = _deploy(treasury)
+    _create_bounty(contract, arbiter, bond=exact_bond)
+    contract.connect(challenger).accept_bounty(args=[0]).transact(
+        value=exact_bond, wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    contract.connect(challenger).raise_dispute(args=[0, 0, "Disputing directly"]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    contract.connect(arbiter_account).resolve_dispute(args=[0, 0, "REJECT", "Arbiter rejects", 0]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED
+    )
+
+    # A single wei short must be rejected -- proves the exact-match
+    # requirement isn't silently tolerant of drift in either direction.
+    tx_under = contract.connect(creator).appeal_arbiter_resolution(
+        args=[0, 0, "Appealing with a bond one wei short"]
+    ).transact(value=exact_bond - 1, wait_transaction_status=TransactionStatus.FINALIZED)
+    assert not tx_execution_succeeded(tx_under)
+
+    # A single wei over must also be rejected.
+    tx_over = contract.connect(creator).appeal_arbiter_resolution(
+        args=[0, 0, "Appealing with a bond one wei over"]
+    ).transact(value=exact_bond + 1, wait_transaction_status=TransactionStatus.FINALIZED)
+    assert not tx_execution_succeeded(tx_over)
+
+    # The attempt must still be appealable -- neither rejected attempt
+    # above was allowed to consume the appeal window/status.
+    attempt_before = contract.get_attempt(args=[0, 0]).call()
+    assert attempt_before["status_label"] == "ARBITER_RESOLVED_PENDING_APPEAL"
+
+    # The EXACT amount succeeds, and is stored back exactly unchanged --
+    # no rounding, no truncation, no drift.
+    tx_exact = contract.connect(creator).appeal_arbiter_resolution(
+        args=[0, 0, "Appealing with the exact required bond"]
+    ).transact(value=exact_bond, wait_transaction_status=TransactionStatus.FINALIZED)
+    assert tx_execution_succeeded(tx_exact)
+
+    attempt = contract.get_attempt(args=[0, 0]).call()
+    assert attempt["status_label"] == "APPEALED"
+    assert attempt["appeal_bond_deposited"] == exact_bond, (
+        "the posted bond must be preserved as the exact same integer, not rounded or truncated"
+    )
 
 
 def test_resolve_appeal_rejects_when_not_appealed(accounts):

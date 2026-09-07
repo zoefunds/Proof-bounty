@@ -407,6 +407,19 @@ _ATTEMPT_TERMINAL_STATES: typing.Final[tuple[int, ...]] = (
     ATTEMPT_INSUFFICIENT_EVIDENCE_FINAL,
 )
 
+# Attempt states where a dispute is actively in flight -- an arbiter
+# and/or a fresh round of GenLayer consensus may still award this
+# bounty's reward to the disputing challenger. `claim_creator_timeout`
+# checks this explicit whitelist (same "explicit, not everything-else"
+# discipline as `_ATTEMPT_LIVE_STATES`) so a creator can never race a
+# still-resolving dispute/appeal to reclaim the reward out from under it
+# -- see `claim_creator_timeout`'s docstring.
+_ATTEMPT_DISPUTE_IN_PROGRESS_STATES: typing.Final[tuple[int, ...]] = (
+    ATTEMPT_DISPUTED,
+    ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL,
+    ATTEMPT_APPEALED,
+)
+
 # --- Verdicts returned by the AI consensus check ---
 VERDICT_APPROVED: str = "APPROVED"
 VERDICT_PARTIAL: str = "PARTIAL"
@@ -761,6 +774,22 @@ class Attempt:
     not the same event as a human actually substituting their own verdict,
     and conflating the two would make the arbiter/appeal tier look more
     consequential than it actually is in practice."""
+
+    rejection_counted: bool
+    """Set the FIRST time this attempt's challenger is charged an
+    `attempts_rejected` reputation strike, and checked before every
+    subsequent strike anywhere in the contract -- guards against
+    double-counting the same attempt. An attempt can reach a rejected
+    outcome more than once in its lifecycle (e.g. `request_verification`
+    marks it REJECTED_FINAL, incrementing the counter, and it is later
+    `claim_bond_forfeiture`d, or disputed and independently re-rejected
+    via `resolve_dispute`/the second-consensus tier) -- without this
+    flag, `_forfeit_attempt_bond` would increment the SAME challenger's
+    `attempts_rejected` a second time for the SAME attempt, silently
+    inflating their real rejection rate. Exactly one of the three
+    increment sites (`request_verification`'s two rejection branches,
+    `_forfeit_attempt_bond`) fires per attempt, whichever reaches a
+    rejected outcome first."""
 
 
 @allow_storage
@@ -1261,8 +1290,18 @@ class ProofBounty(gl.Contract):
         attempt.resolved_at = u256(self._now())
         attempt.resolved_by_arbiter = via_arbiter
 
-        challenger_rep = self._get_or_create_reputation(attempt.challenger)
-        challenger_rep.attempts_rejected = challenger_rep.attempts_rejected + u256(1)
+        # Guarded by `rejection_counted` -- callers of this method include
+        # `claim_bond_forfeiture` (whose precondition means this attempt
+        # already reached REJECTED_FINAL via `request_verification`, which
+        # already charged this strike) and the dispute/appeal tier's
+        # REJECTED branch (which may or may not have already charged it,
+        # depending on the attempt's state before it was disputed). Without
+        # this guard the same attempt's challenger could be double-counted.
+        # See `Attempt.rejection_counted`'s docstring.
+        if not attempt.rejection_counted:
+            attempt.rejection_counted = True
+            challenger_rep = self._get_or_create_reputation(attempt.challenger)
+            challenger_rep.attempts_rejected = challenger_rep.attempts_rejected + u256(1)
 
         if bond > 0:
             self._send_gen(bounty.creator, bond)
@@ -1841,12 +1880,27 @@ parsable by a JSON parser without errors:
         """
         Recovery exit: once a bounty's deadline PLUS `VERIFICATION_GRACE_SECONDS`
         has passed with no attempt having won it, the creator may reclaim
-        the unsettled reward. Safe to call regardless of how many attempts
-        exist or what state they are in -- it only ever touches the
-        bounty's own reward ledger, and every live attempt's bond is
-        independently reclaimable by its own challenger via
-        `claim_bond_forfeiture` / `raise_dispute`, so no challenger funds
-        are ever affected by a creator reclaiming an expired reward.
+        the unsettled reward -- UNLESS a dispute or appeal on one of this
+        bounty's attempts is still actively resolving (see
+        `_ATTEMPT_DISPUTE_IN_PROGRESS_STATES`), since a fresh arbiter
+        ruling or GenLayer consensus review may yet award this same
+        reward to that attempt's challenger. `raise_dispute`/
+        `resolve_dispute`/`appeal_arbiter_resolution` never touch
+        `bounty.status` (it stays `BOUNTY_OPEN` throughout a dispute), and
+        a 2-day appeal window alone can easily outlast the 24-hour
+        `VERIFICATION_GRACE_SECONDS` buffer -- so without this check the
+        creator could reclaim the reward out from under a dispute that
+        hasn't finished resolving yet. Bounded to `MAX_ATTEMPTS_PER_BOUNTY`
+        (40), the same gas-bounded scan `_mark_other_attempts_lost_race`
+        already uses.
+
+        Safe to call once no attempt is mid-dispute, regardless of how
+        many attempts exist or what (non-disputed) state they are in --
+        it only ever touches the bounty's own reward ledger, and every
+        live attempt's bond is independently reclaimable by its own
+        challenger via `claim_bond_forfeiture` / `raise_dispute`, so no
+        challenger funds are ever affected by a creator reclaiming an
+        expired reward.
 
         The grace period (audit-driven fix) exists because `deadline` only
         bounds when a challenger may last SUBMIT evidence (see
@@ -1864,6 +1918,13 @@ parsable by a JSON parser without errors:
             raise gl.vm.UserError(
                 "Bounty deadline plus the verification grace period has not passed yet"
             )
+        for index in range(int(bounty.attempt_count)):
+            attempt = self.attempts[self._attempt_key(bounty_id, index)]
+            if attempt.status in _ATTEMPT_DISPUTE_IN_PROGRESS_STATES:
+                raise gl.vm.UserError(
+                    "Cannot reclaim -- an attempt on this bounty has a dispute "
+                    "or appeal still actively resolving"
+                )
 
         refund = bounty.reward_deposited
         if refund <= u256(0):
@@ -1970,6 +2031,7 @@ parsable by a JSON parser without errors:
             resolved_at=u256(0),
             resolved_by_arbiter=False,
             human_verdict_overrode_ai=False,
+            rejection_counted=False,
         )
 
         bounty.attempt_count = bounty.attempt_count + u256(1)
@@ -2094,8 +2156,10 @@ parsable by a JSON parser without errors:
             if int(attempt.revision_count) >= int(attempt.max_revisions):
                 attempt.status = u8(ATTEMPT_REJECTED_FINAL)
                 attempt.resolved_at = u256(self._now())
-                rep = self._get_or_create_reputation(attempt.challenger)
-                rep.attempts_rejected = rep.attempts_rejected + u256(1)
+                if not attempt.rejection_counted:
+                    attempt.rejection_counted = True
+                    rep = self._get_or_create_reputation(attempt.challenger)
+                    rep.attempts_rejected = rep.attempts_rejected + u256(1)
                 self._record_settlement_provenance(attempt)
             else:
                 attempt.status = u8(ATTEMPT_ACCEPTED)
@@ -2118,14 +2182,19 @@ parsable by a JSON parser without errors:
             # REJECTED_FINAL is NOT a terminal status (see
             # `_ATTEMPT_TERMINAL_STATES`) -- the challenger still has a real
             # window to `raise_dispute` before the bond is actually claimed.
-            # Counting it here and potentially again if a later human ruling
-            # overrides it would double-count the same attempt. The
-            # provenance counter for this path is recorded once the outcome
-            # actually becomes irreversible: see `claim_bond_forfeiture`.
+            # The provenance counter for this path is recorded once the
+            # outcome actually becomes irreversible: see
+            # `claim_bond_forfeiture`. The `attempts_rejected` REPUTATION
+            # strike, however, is charged here immediately (guarded by
+            # `rejection_counted` against being charged again later by
+            # `_forfeit_attempt_bond` for this same attempt) -- see
+            # `Attempt.rejection_counted`'s docstring.
             attempt.status = u8(ATTEMPT_REJECTED_FINAL)
             attempt.resolved_at = u256(self._now())
-            rep = self._get_or_create_reputation(attempt.challenger)
-            rep.attempts_rejected = rep.attempts_rejected + u256(1)
+            if not attempt.rejection_counted:
+                attempt.rejection_counted = True
+                rep = self._get_or_create_reputation(attempt.challenger)
+                rep.attempts_rejected = rep.attempts_rejected + u256(1)
 
         return verdict
 
@@ -2696,6 +2765,7 @@ parsable by a JSON parser without errors:
             "resolved_at": int(a.resolved_at),
             "resolved_by_arbiter": a.resolved_by_arbiter,
             "human_verdict_overrode_ai": a.human_verdict_overrode_ai,
+            "rejection_counted": a.rejection_counted,
         }
 
     @gl.public.view

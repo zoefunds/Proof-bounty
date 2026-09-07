@@ -5,7 +5,6 @@ import { useWallet } from "@/lib/wallet-context";
 import { useContractWrite } from "@/lib/use-contract-write";
 import { useNow } from "@/lib/use-now";
 import { formatGen, truncateAddress, formatTimestamp, bpsToPercent } from "@/lib/format";
-import { toGenWei } from "@/lib/format";
 import { api, isApiConfigured, type EvidenceArchiveItem } from "@/lib/api-client";
 import type { AttemptDetail, BountyDetail } from "@/lib/types";
 import { StatusPill } from "../ui/StatusPill";
@@ -192,7 +191,12 @@ export function AttemptCard({
     const ok = await appealTx.write({
       functionName: "appeal_arbiter_resolution",
       args: [bounty.bounty_id, attempt.index, appealReason],
-      value: toGenWei(String(Number(attempt.bond_amount) / 1e18)),
+      // attempt.bond_amount is already a wei-denominated integer -- BigInt
+      // it directly (matching accept_bounty's pattern) rather than round-
+      // tripping through Number/1e18, which loses precision for any real
+      // bond amount (all comfortably exceed Number.MAX_SAFE_INTEGER) and
+      // would make the contract's exact-match check on this value revert.
+      value: BigInt(attempt.bond_amount),
     });
     if (ok) {
       setShowAppealForm(false);

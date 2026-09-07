@@ -60,6 +60,14 @@ section.
 | `resolve_appeal` has NO access gate at all — anyone may call it once an attempt is `APPEALED` | Absence of any `_require_*` call in `resolve_appeal` | `test_resolve_appeal_rejects_when_not_appealed` (a stranger's call correctly rejects, but for state-machine reasons, not access control); `test_resolve_appeal_is_decided_by_genlayer_consensus_not_a_human` (a non-owner, non-arbiter party's call succeeds) |
 | The owner can never move a single bounty's escrowed funds — only non-monetary admin functions (fee, treasury, pause) | `owner: Address` field docstring | N/A — documentation correctness; an earlier revision routed the final appeal tier through the owner, which was replaced specifically to remove this |
 
+## Timeout recovery cannot race a live dispute; reputation counts are exact
+
+| Invariant | Code | Proof |
+|---|---|---|
+| A creator can never reclaim an expired reward while a dispute/appeal on that bounty is still actively resolving, even past `VERIFICATION_GRACE_SECONDS` | `_ATTEMPT_DISPUTE_IN_PROGRESS_STATES` (DISPUTED, ARBITER_RESOLVED_PENDING_APPEAL, APPEALED), checked in `claim_creator_timeout` via a bounded scan of the bounty's attempts | `test_claim_creator_timeout_rejects_while_dispute_is_still_resolving` — proves the reward stays locked mid-dispute AND unlocks correctly once that same dispute resolves to a non-winning outcome |
+| An appeal bond posted via `appeal_arbiter_resolution` must exactly equal `attempt.bond_amount` — off by even one wei is rejected, and the accepted amount is stored back unchanged | `appeal_arbiter_resolution`'s `int(sent) != int(attempt.bond_amount)` exact-match check | `test_appeal_bond_is_preserved_as_an_exact_integer` (off-by-one-wei rejected in both directions on a deliberately non-round bond amount, exact amount preserved — ran live against real StudioNet). The frontend's OWN construction of this value was a separate, real bug (a lossy `Number()`/1e18 round-trip on an already-exact wei integer) fixed to `BigInt(attempt.bond_amount)` directly — see `memory/MEMORY.md`'s "Team review" section and `scripts/14-regression-appeal-bond-and-timeout.mjs` |
+| A challenger's `attempts_rejected` reputation strike is charged EXACTLY ONCE per attempt, no matter how many rejection-adjacent transitions that attempt passes through (a direct REJECTED verdict later forfeited, or a dispute that re-confirms rejection) | `Attempt.rejection_counted`, guarding all three increment sites (`request_verification`'s two rejection branches, `_forfeit_attempt_bond`) | `test_attempts_rejected_is_not_double_counted_across_reject_then_forfeit` — confirmed to genuinely catch the bug (reverting the fix makes the test fail); this was a real double-count bug found live (a real attempt read `attempts_rejected: 2` for itself with zero retries involved, ruling out a testing artifact) |
+
 ## Provenance
 
 | Invariant | Code | Proof |

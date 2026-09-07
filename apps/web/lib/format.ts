@@ -2,6 +2,15 @@
 const GEN_DECIMALS = 18n;
 const GEN_SCALE = 10n ** GEN_DECIMALS;
 
+/**
+ * Must match `VERIFICATION_GRACE_SECONDS` in contracts/proof_bounty.py --
+ * `claim_creator_timeout` only accepts once `deadline + this` has passed,
+ * not at `deadline` alone. Duplicated here (rather than fetched from the
+ * contract) since it's a compile-time constant on-chain; keep both in
+ * sync if the contract's value ever changes.
+ */
+export const VERIFICATION_GRACE_SECONDS = 24 * 3600;
+
 export function toGenWei(genAmount: string | number): bigint {
   const [whole, frac = ""] = String(genAmount).split(".");
   const paddedFrac = (frac + "0".repeat(18)).slice(0, 18);

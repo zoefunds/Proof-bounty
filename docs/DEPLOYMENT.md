@@ -9,20 +9,20 @@ Deployed manually by the project owner via GenLayer Studio/CLI (never by
 an agent, per project rules — an agent must never invent or assume a
 contract address). Current deployment:
 
-- Address: `0x5EfaD781bf95e075B6b52E852D3815315b639637` (the **8th**
+- Address: `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` (the **10th**
   deployment of this project — see `memory/MEMORY.md` for why the first
-  seven were retired)
+  nine were retired)
 - Constructor args: `treasury_address` (the deployer's own wallet),
   `default_fee_bps=250` (2.5%)
 - Verify the live schema matches source at any time:
   ```bash
   genlayer network set studionet
-  genlayer schema 0x5EfaD781bf95e075B6b52E852D3815315b639637
+  genlayer schema 0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1
   ```
 - Verify the live *source*, not just the ABI, actually matches the repo
   (the schema alone can't prove internal logic/constants match):
   ```bash
-  genlayer code 0x5EfaD781bf95e075B6b52E852D3815315b639637 > /tmp/deployed.py
+  genlayer code 0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1 > /tmp/deployed.py
   diff /tmp/deployed.py contracts/proof_bounty.py
   ```
 
@@ -68,7 +68,7 @@ Production environment variables (set via `vercel env add ... production`):
 
 | Variable | Value |
 |---|---|
-| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | `0x5EfaD781bf95e075B6b52E852D3815315b639637` |
+| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` |
 | `NEXT_PUBLIC_GENLAYER_NETWORK` | `studionet` |
 | `NEXT_PUBLIC_GENLAYER_RPC_URL` | `https://studio.genlayer.com/api` |
 | `NEXT_PUBLIC_API_URL` | `https://proofbounty-api.fly.dev` |
@@ -100,7 +100,7 @@ Secrets (set via `fly secrets set ... --app proofbounty-api`):
 | Secret | Notes |
 |---|---|
 | `DATABASE_URL` | Auto-set by `fly postgres attach` |
-| `PROOFBOUNTY_CONTRACT_ADDRESS` | `0x5EfaD781bf95e075B6b52E852D3815315b639637` |
+| `PROOFBOUNTY_CONTRACT_ADDRESS` | `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` |
 | `REDIS_URL` | Upstash instance, used only for GenLayer RPC pacing |
 
 Non-secret env vars live in `apps/api/fly.toml`'s `[env]` block
