@@ -23,15 +23,23 @@ const DISPUTE_IN_PROGRESS_STATUSES = ["DISPUTED", "ARBITER_RESOLVED_PENDING_APPE
  * VERIFICATION_GRACE_SECONDS elapsed, and no attempt still mid-dispute --
  * offering the action when any of these don't hold means a click is
  * guaranteed to revert on-chain.
+ *
+ * `attempts` is `null`/`undefined` while `get_bounty_attempts` is still
+ * loading (`useContractRead`'s `data` starts as `null`) or hasn't been
+ * requested yet -- treated here as "unknown, not zero," so the action
+ * stays hidden until the real list has actually arrived. Passing `[]`
+ * for "still loading" would let the action render past the grace period
+ * even when a live dispute exists but hasn't loaded yet.
  */
 export function canClaimBountyTimeout(params: {
   isCreator: boolean;
   bountyStatusLabel: string;
   now: number;
   deadline: number;
-  attempts: Pick<AttemptDetail, "status_label">[];
+  attempts: Pick<AttemptDetail, "status_label">[] | null | undefined;
 }): boolean {
   const { isCreator, bountyStatusLabel, now, deadline, attempts } = params;
+  if (attempts == null) return false;
   const graceElapsed = now >= deadline + VERIFICATION_GRACE_SECONDS;
   const hasDisputeInProgress = attempts.some((a) => DISPUTE_IN_PROGRESS_STATUSES.includes(a.status_label));
   return isCreator && bountyStatusLabel === "OPEN" && graceElapsed && !hasDisputeInProgress;

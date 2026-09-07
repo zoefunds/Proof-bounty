@@ -154,6 +154,40 @@ clean.
 
 ---
 
+## Second follow-up audit: a loading-state gap in the same fix
+
+A third review pass caught a real, more subtle gap in the fix above:
+`bounty/[id]/page.tsx` called `canClaimBountyTimeout` with
+`attempts: attempts ?? []`. While `get_bounty_attempts` is still
+loading, `useContractRead`'s `data` starts out `null` — so that
+defaulting treated the genuinely UNKNOWN attempt list the same as a
+CONFIRMED-empty one. Past the grace period, this meant the timeout
+button could briefly render even when a real dispute existed but simply
+hadn't finished loading yet — the contract would still correctly reject
+the click, but the UI shouldn't offer it in the first place. The
+existing regression test didn't cover this loading-state path.
+
+**The fix.** Moved the loading-awareness into `canClaimBountyTimeout`
+itself rather than relying on every future caller to remember a separate
+`attempts !== undefined` guard: it now accepts `attempts` as possibly
+`null` or `undefined` and returns `false` immediately whenever the list
+hasn't actually arrived yet. `bounty/[id]/page.tsx` now passes
+`attempts` straight through instead of defaulting it to `[]`.
+
+**Regression test.** Added to
+`scripts/14-regression-appeal-bond-and-timeout.mjs`: asserts the button
+stays hidden for both `attempts: undefined` and `attempts: null` (the
+real value `useContractRead` uses while loading) even past the grace
+period with no dispute data at all, and a sanity check that a genuinely
+loaded, empty attempt list still correctly shows the button. Confirmed
+this test actually catches the bug by temporarily reverting the fix and
+re-running it (it failed, as expected, with a `TypeError` from calling
+`.some()` on `undefined` — the pre-fix code didn't even guard against
+that). Verified again with `tsc --noEmit`, `eslint`, and a full
+`next build`, all clean.
+
+---
+
 ## Verification summary
 
 | Check | Result |

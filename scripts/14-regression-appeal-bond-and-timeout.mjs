@@ -28,6 +28,16 @@
 //      is a real check against the code the UI runs, not a predicate
 //      reimplementation that could pass while the actual component logic
 //      stays broken.
+//   4. Even after fixing (3), the page passed `attempts ?? []` into
+//      `canClaimBountyTimeout` -- while `get_bounty_attempts` is still
+//      loading (`attempts === undefined`), that treated an UNKNOWN
+//      attempt list as a confirmed-empty one, so past the grace period
+//      the button could briefly render even when a live dispute actually
+//      existed but just hadn't loaded yet. Fixed by having
+//      `canClaimBountyTimeout` treat `attempts === undefined` as "hide
+//      the action" directly (rather than relying on every caller to
+//      remember a separate loaded-check), and by having the page pass
+//      `attempts` straight through instead of defaulting it to `[]`.
 
 import { toGenWei, VERIFICATION_GRACE_SECONDS } from "../apps/web/lib/format.ts";
 import { canClaimBountyTimeout } from "../apps/web/lib/bounty-actions.ts";
@@ -108,6 +118,29 @@ assert(
     attempts: [{ status_label: "LOST_RACE" }, { status_label: "BOND_FORFEITED" }],
   }) === true,
   "button correctly shown once every attempt has reached a non-disputed (terminal or live-but-undisputed) state"
+);
+
+console.log("\n=== Regression 4: timeout action stays hidden while attempts are still loading ===");
+
+for (const notYetLoaded of [undefined, null]) {
+  assert(
+    canClaimBountyTimeout({
+      isCreator: true,
+      bountyStatusLabel: "OPEN",
+      now: afterGrace,
+      deadline,
+      attempts: notYetLoaded,
+    }) === false,
+    `button MUST stay hidden while the attempt list hasn't loaded yet (attempts === ${notYetLoaded}), even ` +
+      "past the grace period -- an unknown list must never be treated as a confirmed-empty one, since a " +
+      "real dispute could still be sitting in the not-yet-loaded data. (useContractRead's `data` starts as " +
+      "`null` specifically, but both are covered since `bounty-actions.ts` treats them the same way.)"
+  );
+}
+assert(
+  canClaimBountyTimeout({ ...baseParams, now: afterGrace, attempts: [] }) === true,
+  "sanity check: once attempts have actually loaded and are genuinely empty (no attempts at all), the " +
+    "button is correctly shown -- this is a CONFIRMED empty list, not an unknown one"
 );
 
 console.log("\n✅ ALL REGRESSION CHECKS PASSED");

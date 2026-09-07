@@ -55,7 +55,7 @@ export default function BountyDetailPage() {
     bountyStatusLabel: bounty.status_label,
     now,
     deadline: bounty.deadline,
-    attempts: attempts ?? [],
+    attempts,
   });
 
   return (
