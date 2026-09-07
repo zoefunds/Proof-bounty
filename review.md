@@ -119,6 +119,41 @@ once the grace period has actually passed.
 
 ---
 
+## Follow-up audit: the button still stayed visible during a live dispute
+
+A second review pass on this fix caught a real remaining gap: past the
+grace period, the "Claim Timeout Refund" button still displayed even
+when an attempt on the bounty was `DISPUTED`, `ARBITER_RESOLVED_PENDING_APPEAL`,
+or `APPEALED`. The contract correctly rejected that click (the fix
+above), but the UI was still offering an action guaranteed to revert.
+The same pass also noted the regression script mostly reimplemented the
+UI's predicates rather than testing the actual rendered logic — a fair
+distinction, since a reimplementation can pass while the real component
+stays broken.
+
+**The fix.** Extracted the button's full visibility logic into a single,
+standalone, exported function,
+[`canClaimBountyTimeout`](apps/web/lib/bounty-actions.ts), mirroring the
+contract's `_ATTEMPT_DISPUTE_IN_PROGRESS_STATES` check — the same three
+in-flight statuses, checked against the bounty's live attempts.
+`bounty/[id]/page.tsx` now calls this function directly instead of
+inlining the (incomplete) condition itself.
+
+**Regression test, now against the real function, not a copy of it.**
+`scripts/14-regression-appeal-bond-and-timeout.mjs` was rewritten to
+*import* `canClaimBountyTimeout` from its real source file and call it
+directly, for both the grace-period boundary checks and three new
+assertions proving the button stays hidden while any attempt is in each
+of the three in-progress states, and is correctly shown again once none
+are. (`apps/web/tsconfig.json` gained `allowImportingTsExtensions` —
+the standard, documented flag for exactly this `noEmit` + `moduleResolution:
+"bundler"` setup — so the same source file resolves cleanly under both
+Next.js's compiler and a plain Node run of the regression script.)
+Verified with `tsc --noEmit`, `eslint`, and a full `next build`, all
+clean.
+
+---
+
 ## Verification summary
 
 | Check | Result |
@@ -126,8 +161,8 @@ once the grace period has actually passed.
 | `genvm-lint check contracts/proof_bounty.py` | Clean — 33 methods, unchanged shape |
 | Offline `gltest.direct` test suite | All passing |
 | `test_appeal_bond_is_preserved_as_an_exact_integer` | Passing, **run live against real StudioNet** |
-| Frontend `tsc --noEmit` / `eslint` | Clean |
-| `scripts/14-regression-appeal-bond-and-timeout.mjs` | Passing |
+| Frontend `tsc --noEmit` / `eslint` / `next build` | Clean |
+| `scripts/14-regression-appeal-bond-and-timeout.mjs` (imports the real UI predicate functions, not reimplementations) | Passing |
 | Deployed bytecode vs. source (`genlayer code` diff) | Byte-for-byte match, confirmed on the 9th and 10th deployments |
 | Full 4-test live product round, 9th and 10th deployments | Zero unresolved errors on the explorer |
 

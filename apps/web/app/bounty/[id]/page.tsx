@@ -6,7 +6,8 @@ import { useContractRead } from "@/lib/use-contract-read";
 import { useContractWrite } from "@/lib/use-contract-write";
 import { useWallet } from "@/lib/wallet-context";
 import { useNow } from "@/lib/use-now";
-import { formatGen, formatDeadline, formatTimestamp, truncateAddress, isExpired, VERIFICATION_GRACE_SECONDS } from "@/lib/format";
+import { formatGen, formatDeadline, formatTimestamp, truncateAddress, isExpired } from "@/lib/format";
+import { canClaimBountyTimeout } from "@/lib/bounty-actions";
 import type { BountyDetail, AttemptDetail } from "@/lib/types";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Button } from "@/components/ui/Button";
@@ -45,15 +46,17 @@ export default function BountyDetailPage() {
   }
 
   const expired = isExpired(bounty.deadline);
-  const graceElapsed = now >= bounty.deadline + VERIFICATION_GRACE_SECONDS;
   const displayStatus = bounty.status_label === "OPEN" && expired ? "EXPIRED_REFUNDED" : bounty.status_label;
   const isCreator = address?.toLowerCase() === bounty.creator.toLowerCase();
   const canAccept = bounty.status_label === "OPEN" && !expired && !isCreator;
   const canCancel = isCreator && bounty.status_label === "OPEN" && !bounty.criteria_locked;
-  // Deadline passing alone isn't enough -- the contract also requires
-  // VERIFICATION_GRACE_SECONDS (24h) past it before claim_creator_timeout
-  // will actually succeed, so the button must stay hidden until then too.
-  const canClaimTimeout = isCreator && bounty.status_label === "OPEN" && graceElapsed;
+  const canClaimTimeout = canClaimBountyTimeout({
+    isCreator,
+    bountyStatusLabel: bounty.status_label,
+    now,
+    deadline: bounty.deadline,
+    attempts: attempts ?? [],
+  });
 
   return (
     <main className="flex-grow pt-8 pb-24 px-4 md:px-16 max-w-[1280px] mx-auto w-full grid grid-cols-1 lg:grid-cols-12 gap-6">
