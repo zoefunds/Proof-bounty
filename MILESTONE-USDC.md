@@ -96,9 +96,7 @@ does not block GenLayer adjudication; the next sweep retries idempotently.
 - Web TypeScript and ESLint pass.
 - Selected offline GenLayer dispute/appeal adjudication tests: 5/5 pass.
 - Live reads on the fresh corrected GenLayer deployment: counter `0`, contract
-  balance `0`, and fee `250`; schema reports non-payable write methods. The
-  prior deployment's finalized public trace remains archived in
-  `docs/VERIFICATION.md`.
+  balance `0`, and fee `250`; schema reports non-payable write methods.
 - Live Base reads confirm USDC, owner, relayer, decision signer, treasury, and
   the 10,000 BPS denominator.
 

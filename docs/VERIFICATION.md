@@ -22,40 +22,12 @@ The GenLayer deployment transaction is
 The funding-attestor configuration transaction is
 `0x12fa6649d412019060d287775e646da0aaed9639b05e87bad6796498f89154d2`.
 
-## Archived finalized cross-chain testnet trace
-
-This trace used bounty `0` and attempt `0` on the immediately preceding paired
-deployment. It remains transaction evidence for the same escrow code, while
-the fresh addresses above isolate the corrected GenLayer bounty namespace.
-All amounts below are six-decimal Base Sepolia USDC units.
-
-1. GenLayer bounty creation finalized in
-   `0x91e3ee35e8ea0c579969ddb8d27b2852b5be5774b3e13b25289de0032ad58029`.
-2. The authenticated creator deposited the 100,000-unit reward on Base in
-   `0xf4732068c38a17ea80deda5440525a0a860bfafbcbbc339f3d498d8720108935`.
-3. The challenger reserved its GenLayer identity in
-   `0x53f0ae04f928c90b54e21274586194f8f201cdac18f5680357d92da7e4cc6278`,
-   then deposited the exact 100,000-unit Base bond in
-   `0xdf211dd07cf1c7581efc0631e84b0d9a0fb789a6d77372dd1b05daf2ab4ed4ad`.
-4. Receipt verification activated the GenLayer attempt in
-   `0x716aff31b8cb45447883aab64eaeadb17cabc9be96865fdd3caab42c79fdb065`
-   and bound the same reservation on Base in
-   `0x9712516a9d320efb6b5e7d007e6b6262a972ddd41ead4e550b5189c866120168`.
-5. GenLayer independently fetched and adjudicated the submitted evidence.
-   The final consensus round was
-   `0xbc2547e1728773fb0be114652bcd912ac82d309edd08d71a022e0f0bbc339364`.
-   It rejected the evidence after the revision limit; this deliberately
-   exercises the forfeiture branch rather than claiming a favorable result.
-6. The creator finalized that GenLayer forfeiture in
-   `0x7620dd07de6ccd93f70da9be4c58b34f403c1fa4e446bd86688ecb7eddad88e5`.
-   The production relay executed the exact signed Base allocation in
-   `0x5955ccc1039dd47a438ddf8ccf374f4df801e943405bfe791cb5821d7252dd9c`.
-7. The credited recipient pulled the 100,000-unit USDC balance in
-   `0x3f4de515328430050e02a5c17b70f8802425c2d7f8b74b0ff3e481b50b010e57`.
-
-The source-level Foundry end-to-end test additionally covers the successful
-winner branch (reward plus returned bond, fee allocation, and recipient
-claim), while this public trace proves the deployed rejected/forfeited branch.
+Live reads on the current deployment report GenLayer bounty count `0`, contract
+balance `0`, and fee `250`. Base getters resolve to the USDC, relayer, decision
+signer, attestor, and treasury documented for this release. The production API
+reports `lastBountyCount: 0`, `cachedBounties: 0`, and no indexer error. Prior
+deployment records are intentionally retained only in Git history so they
+cannot be mistaken for current operational data.
 
 ## Reproducible checks
 
@@ -98,7 +70,7 @@ deployment and transactions above.
 
 The workflow contains dedicated Foundry, GenLayer, frontend, backend, and
 dependency jobs. The latest verified run for the integrity release is
-[`40693072602`](https://github.com/zoefunds/Proof-bounty/actions/runs/40693072602).
+[`40697106729`](https://github.com/zoefunds/Proof-bounty/actions/runs/40697106729).
 GitHub refused to start every runner with: `The job was not started because
 your account is locked due to a billing issue.` Restore the repository owner's
 GitHub billing status and rerun the workflow; no repository change can bypass
