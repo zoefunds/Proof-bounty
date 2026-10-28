@@ -954,11 +954,9 @@ def test_appeal_arbiter_resolution_rejects_stranger(accounts):
     assert not tx_execution_succeeded(tx)
 
 
-def test_appeal_arbiter_resolution_success_reaches_appealed_status(accounts):
-    """The real, positive appeal path: creator posts the exact required
-    bond and the attempt correctly reaches APPEALED with appeal metadata
-    recorded, all before any money moves (the core of the two-tier
-    redesign)."""
+def test_positive_appeal_requires_funding_attestation_before_appealed_status(accounts):
+    """A positive-bond appeal is only reserved until the funding attestor
+    confirms its exact Base deposit."""
     treasury = accounts[1].address
     arbiter_account = accounts[2]
     arbiter = arbiter_account.address
@@ -980,11 +978,11 @@ def test_appeal_arbiter_resolution_success_reaches_appealed_status(accounts):
     assert tx_execution_succeeded(tx)
 
     attempt = contract.get_attempt(args=[0, 0]).call()
-    assert attempt["status_label"] == "APPEALED"
+    assert attempt["status_label"] == "APPEAL_PENDING_FUNDING"
     assert attempt["appealed_by"].lower() == creator.address.lower()
     assert attempt["appeal_bond_deposited"] == 1 * 10**18
 
-    # Double-appeal must fail -- no longer in the appealable status.
+    # Double-appeal must fail while the first reservation is pending.
     tx_double = contract.connect(challenger).appeal_arbiter_resolution(
         args=[0, 0, "Also appealing"]
     ).transact(value=1 * 10**18, wait_transaction_status=TransactionStatus.FINALIZED)
@@ -1052,7 +1050,7 @@ def test_appeal_bond_is_preserved_as_an_exact_integer(accounts):
     assert tx_execution_succeeded(tx_exact)
 
     attempt = contract.get_attempt(args=[0, 0]).call()
-    assert attempt["status_label"] == "APPEALED"
+    assert attempt["status_label"] == "APPEAL_PENDING_FUNDING"
     assert attempt["appeal_bond_deposited"] == exact_bond, (
         "the posted bond must be preserved as the exact same integer, not rounded or truncated"
     )
@@ -1083,11 +1081,11 @@ def test_resolve_appeal_rejects_when_not_appealed(accounts):
     assert not tx_execution_succeeded(tx), "resolve_appeal must reject an attempt that was never appealed"
 
 
-def test_positive_appeal_amount_survives_resolution_for_late_base_funding_is_a_safe_noop(
+def test_positive_appeal_requires_attestation_and_preserves_funded_amount_is_a_safe_noop(
     direct_vm, direct_deploy, direct_accounts
 ):
-    """A finalized appeal must retain its declared amount so Base can issue
-    a late identity-bound funding authorization after consensus resolves."""
+    """A positive appeal cannot resolve before attestation; once the exact
+    Base deposit is attested it resolves and preserves its funded amount."""
     import json
 
     treasury = direct_accounts[1]
@@ -1107,6 +1105,16 @@ def test_positive_appeal_amount_survives_resolution_for_late_base_funding_is_a_s
         contract.resolve_dispute(0, 0, "REJECT", "Arbiter rejects", 0)
     with direct_vm.prank(challenger):
         contract.appeal_arbiter_resolution(0, 0, "Fresh consensus should overturn this")
+    pending = contract.get_attempt(0, 0)
+    assert pending["status_label"] == "APPEAL_PENDING_FUNDING"
+    with pytest.raises(Exception):
+        contract.resolve_appeal(0, 0)
+    base_tx = "0x" + "ab" * 32
+    with direct_vm.prank(direct_accounts[4]):
+        with pytest.raises(Exception):
+            contract.confirm_appeal_funding(0, 0, base_tx)
+    contract.confirm_appeal_funding(0, 0, base_tx)
+    assert contract.get_attempt(0, 0)["status_label"] == "APPEALED"
 
     direct_vm.mock_web(r".*", {"status": 200, "body": "Mocked evidence page content."})
     direct_vm.mock_llm(
@@ -1122,6 +1130,39 @@ def test_positive_appeal_amount_survives_resolution_for_late_base_funding_is_a_s
         "the finalized declaration must remain available for delayed Base authorization"
     )
     assert finalized["appeal_bond_recipient"].lower() == ("0x" + challenger.hex()).lower()
+
+
+def test_abandoned_appeal_funding_expires_without_permanent_lock_is_a_safe_noop(
+    direct_vm, direct_deploy, direct_accounts
+):
+    """An unfunded positive appeal expires back to the underlying pending
+    ruling and cannot invoke the second consensus path as an appeal."""
+    import datetime as dt
+    import sys
+
+    treasury, arbiter, challenger = direct_accounts[1], direct_accounts[2], direct_accounts[3]
+    contract = direct_deploy("proof_bounty.py", treasury, 250)
+    contract.create_bounty(
+        "Appeal funding expiry", "The evidence supports the claim.", "POSITIVE",
+        "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter,
+        ONE_DAY, 234_567, 5 * 10**6,
+    )
+    _direct_reserve_and_activate(contract, direct_vm, direct_accounts[0], challenger)
+    with direct_vm.prank(challenger):
+        contract.raise_dispute(0, 0, "Review requested")
+    with direct_vm.prank(arbiter):
+        contract.resolve_dispute(0, 0, "REJECT", "Arbiter rejects", 0)
+    with direct_vm.prank(challenger):
+        contract.appeal_arbiter_resolution(0, 0, "I intend to appeal")
+    assert contract.get_attempt(0, 0)["status_label"] == "APPEAL_PENDING_FUNDING"
+    gl = sys.modules["genlayer.gl"]
+    future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=3)
+    gl.message_raw["datetime"] = future.isoformat().replace("+00:00", "Z")
+    contract.expire_appeal_funding(0, 0)
+    expired = contract.get_attempt(0, 0)
+    assert expired["status_label"] == "ARBITER_RESOLVED_PENDING_APPEAL"
+    assert expired["appealed_by"].lower() == ZERO_ADDRESS
+    assert expired["appeal_bond_deposited"] == 0
 
 
 # ============================================================================

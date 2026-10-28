@@ -52,6 +52,8 @@ interface IndexedAttempt {
   appealReason: string;
   appealBondDeposited: string;
   appealBondRecipient: string;
+  appealFundingDeadline: number;
+  appealBaseFundingTxHash: string;
   createdAt: number;
   submittedAt: number;
   resolvedAt: number;
@@ -136,6 +138,8 @@ function toAttemptDetail(a: IndexedAttempt): AttemptDetail {
     appeal_reason: a.appealReason,
     appeal_bond_deposited: a.appealBondDeposited,
     appeal_bond_recipient: a.appealBondRecipient,
+    appeal_funding_deadline: a.appealFundingDeadline,
+    appeal_base_funding_tx_hash: a.appealBaseFundingTxHash,
     created_at: a.createdAt,
     submitted_at: a.submittedAt,
     resolved_at: a.resolvedAt,

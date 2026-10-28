@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useWallet } from "@/lib/wallet-context";
 import { useContractWrite } from "@/lib/use-contract-write";
-import { requestAppealFundingAuthorization, useBaseEscrow } from "@/lib/base-escrow";
+import { confirmAppealFunding, requestAppealFundingAuthorization, useBaseEscrow } from "@/lib/base-escrow";
 import { useNow } from "@/lib/use-now";
 import { formatGen, truncateAddress, formatTimestamp, bpsToPercent } from "@/lib/format";
 import { api, isApiConfigured, type EvidenceArchiveItem } from "@/lib/api-client";
@@ -116,6 +116,7 @@ export function AttemptCard({
   const forfeitTx = useContractWrite();
   const finalizeTx = useContractWrite();
   const appealTx = useContractWrite();
+  const expireAppealFundingTx = useContractWrite();
   const baseEscrow = useBaseEscrow();
   const [baseError, setBaseError] = useState<string | null>(null);
   const [baseAppealFunding, setBaseAppealFunding] = useState(false);
@@ -137,7 +138,11 @@ export function AttemptCard({
   const canForfeit = isCreator && attempt.status_label === "REJECTED_FINAL";
   const canAppeal = (isChallenger || isCreator) && appealWindowOpen;
   const canRetryAppealFunding = !appealFundedOnBase && attempt.appealed_by.toLowerCase() !== ZERO_ADDRESS &&
-    address?.toLowerCase() === attempt.appealed_by.toLowerCase() && BigInt(attempt.bond_amount) > 0n;
+    address?.toLowerCase() === attempt.appealed_by.toLowerCase() && BigInt(attempt.bond_amount) > 0n &&
+    attempt.status_label === "APPEAL_PENDING_FUNDING" && now <= attempt.appeal_funding_deadline;
+  const canExpireAppealFunding = attempt.status_label === "APPEAL_PENDING_FUNDING" && now > attempt.appeal_funding_deadline;
+  const canRecoverUnactivatedAppeal = address?.toLowerCase() === attempt.appealed_by.toLowerCase() &&
+    attempt.status_label === "APPEAL_PENDING_FUNDING" && now >= attempt.appeal_funding_deadline + 24 * 60 * 60;
   const canFinalize = appealWindowClosed; // permissionless — anyone may call
 
   async function handleSubmitEvidence() {
@@ -200,7 +205,8 @@ export function AttemptCard({
     try {
       const auth = await requestAppealFundingAuthorization(bounty.bounty_id, attempt.index, address);
       await baseEscrow.approve();
-      await baseEscrow.fundAppeal(bounty.bounty_id, attempt.index, auth.authorizationExpiry, auth.authorization);
+      const baseFundingTxHash = await baseEscrow.fundAppeal(bounty.bounty_id, attempt.index, auth.authorizationExpiry, auth.authorization);
+      await confirmAppealFunding(bounty.bounty_id, attempt.index, address, baseFundingTxHash);
       setAppealFundedOnBase(true);
       setBaseError(null);
     } finally { setBaseAppealFunding(false); }
@@ -222,6 +228,19 @@ export function AttemptCard({
         setBaseError(err instanceof Error ? err.message : String(err));
       }
     }
+  }
+
+  async function handleExpireAppealFunding() {
+    const ok = await expireAppealFundingTx.write({ functionName: "expire_appeal_funding", args: [bounty.bounty_id, attempt.index] });
+    if (ok) onChanged();
+  }
+
+  async function handleRecoverUnactivatedAppeal() {
+    try {
+      await baseEscrow.recoverUnactivatedAppeal(bounty.bounty_id, attempt.index);
+      setBaseError(null);
+      onChanged();
+    } catch (err) { setBaseError(err instanceof Error ? err.message : String(err)); }
   }
 
   return (
@@ -381,6 +400,16 @@ export function AttemptCard({
         {canRetryAppealFunding && (
           <Button size="sm" variant="secondary" onClick={() => fundAppealOnBase().catch((err) => setBaseError(err instanceof Error ? err.message : String(err)))} isLoading={baseAppealFunding}>
             Fund / Retry Base Appeal Bond
+          </Button>
+        )}
+        {canExpireAppealFunding && (
+          <Button size="sm" variant="secondary" onClick={handleExpireAppealFunding} isLoading={expireAppealFundingTx.isBusy}>
+            Expire Unfunded Appeal
+          </Button>
+        )}
+        {canRecoverUnactivatedAppeal && (
+          <Button size="sm" variant="secondary" onClick={handleRecoverUnactivatedAppeal}>
+            Recover Unactivated Appeal Bond
           </Button>
         )}
         {canFinalize && (

@@ -1,24 +1,26 @@
 import { Contract, Interface, JsonRpcProvider, Wallet, getAddress, keccak256, toUtf8Bytes } from "ethers";
 import { env } from "../lib/env.js";
 import { prisma } from "../lib/prisma.js";
-import { attestAttemptFunding, readContract } from "../lib/genlayer.js";
+import { attestAppealFunding, attestAttemptFunding, readContract } from "../lib/genlayer.js";
 import { planAppealSettlement } from "./appeal-reconciliation.js";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 const ABI = [
   "function bounties(uint256) view returns (address creator,uint256 reward,uint256 requiredBond,uint16 feeBps,uint64 fundedAt,address genlayerContract,bool registered,bool rewardSettled,uint256 decisionNonce)",
   "function pendingAttempts(uint256,uint256) view returns (address challenger,uint256 bond,uint64 fundedAt,uint64 authorizationExpiry,bool bound,bool recovered)",
-  "function attempts(uint256,uint256) view returns (address challenger,uint256 bond,uint256 appealBond,address appealPayer,bool settled,uint256 reservationId)",
+  "function attempts(uint256,uint256) view returns (address challenger,uint256 bond,uint256 appealBond,address appealPayer,bool settled,uint256 reservationId,uint64 appealAuthorizationExpiry,bool appealBound)",
   "function registerBounty(uint256 bountyId,address genlayerContract,bytes authorization)",
   "function bindAttempt(uint256 bountyId,uint256 reservationId,uint256 attemptIndex,bytes32 baseFundingTxHash,bytes authorization)",
+  "function bindAppeal(uint256 bountyId,uint256 attemptIndex,bytes32 baseFundingTxHash,bytes authorization)",
   "function executeDecision(uint256 bountyId,uint256 attemptIndex,uint8 outcomeCode,uint16 payoutBps,address recipient,address appealRecipient,bytes32 genlayerStateHash,uint256 decisionNonce,uint64 validAfter,uint64 validBefore,bytes authorization)",
   "event AttemptFundingReserved(uint256 indexed bountyId,uint256 indexed reservationId,address indexed challenger,uint256 bond,uint64 authorizationExpiry)",
+  "event AppealFunded(uint256 indexed bountyId,uint256 indexed attemptIndex,address indexed appellant,uint256 bond)",
 ];
 
 type Logger = { info: (o: unknown, msg?: string) => void; error: (o: unknown, msg?: string) => void };
 type Reservation = { bounty_id: number; reservation_id: number; challenger: string; status_label: string; funding_deadline: number; activated_attempt_index: number; base_funding_tx_hash: string };
 type LiveBounty = { creator: string; reward_amount: number; required_bond: number; platform_fee_bps: number; status_label: string; winning_attempt_index: number };
-type LiveAttempt = { challenger: string; status_label: string; last_payout_bps: number; last_verdict: string; appeal_bond_recipient: string; resolved_at: number };
+type LiveAttempt = { challenger: string; status_label: string; last_payout_bps: number; last_verdict: string; appeal_bond_recipient: string; appealed_by: string; resolved_at: number; appeal_base_funding_tx_hash: string };
 
 let running = false;
 function configured() { return !!(env.BASE_ESCROW_ADDRESS && env.BASE_RELAYER_PRIVATE_KEY && env.BASE_DECISION_SIGNER_PRIVATE_KEY); }
@@ -54,7 +56,7 @@ export async function createAppealFundingAuthorization(bountyId: number, attempt
   const { signer, escrow, domain } = context();
   const normalized = getAddress(appellant);
   const fresh = await readContract<LiveAttempt & { appealed_by: string; appeal_bond_deposited: number }>("get_attempt", [bountyId, attemptIndex]);
-  if (fresh.appealed_by === ZERO) throw new Error("GenLayer attempt has no finalized appellant");
+  if (fresh.status_label !== "APPEAL_PENDING_FUNDING") throw new Error("GenLayer appeal is not awaiting funding");
   if (getAddress(fresh.appealed_by) !== normalized) throw new Error("caller is not the finalized GenLayer appellant");
   const base = await escrow.bounties(bountyId);
   const bound = await escrow.attempts(bountyId, attemptIndex);
@@ -69,6 +71,32 @@ export async function createAppealFundingAuthorization(bountyId: number, attempt
     { name: "genlayerContract", type: "address" }, { name: "authorizationExpiry", type: "uint64" },
   ] }, { bountyId, attemptIndex, appellant: normalized, bond: base.requiredBond, genlayerContract: base.genlayerContract, authorizationExpiry });
   return { authorization, authorizationExpiry, bond: base.requiredBond.toString() };
+}
+
+export async function confirmAppealFunding(bountyId: number, attemptIndex: number, appellant: string, baseFundingTxHash: string) {
+  const { provider, signer, escrow, domain } = context();
+  const normalized = getAddress(appellant);
+  const receipt = await provider.getTransactionReceipt(baseFundingTxHash);
+  if (!receipt || receipt.status !== 1 || receipt.to?.toLowerCase() !== env.BASE_ESCROW_ADDRESS!.toLowerCase()) throw new Error("Base appeal funding transaction is not a successful escrow call");
+  const iface = new Interface(ABI);
+  const event = receipt.logs.map((log) => { try { return iface.parseLog(log); } catch { return null; } })
+    .find((log) => log?.name === "AppealFunded" && Number(log.args.bountyId) === bountyId && Number(log.args.attemptIndex) === attemptIndex);
+  if (!event || getAddress(event.args.appellant) !== normalized) throw new Error("appeal funding event does not match appellant");
+  let fresh = await readContract<LiveAttempt & { appealed_by: string }>("get_attempt", [bountyId, attemptIndex]);
+  if (fresh.status_label === "APPEAL_PENDING_FUNDING") {
+    await attestAppealFunding(bountyId, attemptIndex, baseFundingTxHash);
+    fresh = await readContract<LiveAttempt & { appealed_by: string }>("get_attempt", [bountyId, attemptIndex]);
+  }
+  if (fresh.status_label !== "APPEALED" || fresh.appeal_base_funding_tx_hash.toLowerCase() !== baseFundingTxHash.toLowerCase()) throw new Error("GenLayer did not activate this exact Base appeal deposit");
+  const bound = await escrow.attempts(bountyId, attemptIndex);
+  if (bound.appealBound) return { genlayerActivated: true, alreadyBound: true, baseBindingTxHash: null };
+  const authorization = await signer.signTypedData(domain, { BindAppeal: [
+    { name: "bountyId", type: "uint256" }, { name: "attemptIndex", type: "uint256" },
+    { name: "appellant", type: "address" }, { name: "baseFundingTxHash", type: "bytes32" },
+  ] }, { bountyId, attemptIndex, appellant: normalized, baseFundingTxHash });
+  const tx = await escrow.bindAppeal(bountyId, attemptIndex, baseFundingTxHash, authorization);
+  await tx.wait();
+  return { genlayerActivated: true, alreadyBound: false, baseBindingTxHash: tx.hash };
 }
 
 export async function createAttemptFundingAuthorization(bountyId: number, reservationId: number, challenger: string) {
@@ -147,9 +175,20 @@ export async function relayBaseOnce(logger: Logger) {
         if (!base.rewardSettled && ["CANCELLED", "EXPIRED_REFUNDED"].includes(live.status_label)) await execute(escrow, signer, domain, base, cached.bountyId, 0, 4, 0, live.creator, ZERO, live.status_label, live);
         for (const cachedAttempt of cached.attempts) {
           const fresh = await readContract<LiveAttempt>("get_attempt", [cached.bountyId, cachedAttempt.attemptIndex]);
-          const baseAttempt = await escrow.attempts(cached.bountyId, cachedAttempt.attemptIndex);
+          let baseAttempt = await escrow.attempts(cached.bountyId, cachedAttempt.attemptIndex);
           if (baseAttempt.challenger === ZERO || baseAttempt.settled) continue;
           if (getAddress(baseAttempt.challenger) !== getAddress(fresh.challenger)) { logger.error({ bountyId: cached.bountyId, attemptIndex: cachedAttempt.attemptIndex }, "base relay: bound challenger conflicts with fresh GenLayer state"); continue; }
+          // If GenLayer activation succeeded but the request-serving process
+          // failed before Base binding, the independent sweep completes that
+          // idempotent second leg from the attested transaction hash.
+          if (baseAttempt.appealBond > 0n && !baseAttempt.appealBound && fresh.appeal_base_funding_tx_hash) {
+            const authorization = await signer.signTypedData(domain, { BindAppeal: [
+              { name: "bountyId", type: "uint256" }, { name: "attemptIndex", type: "uint256" },
+              { name: "appellant", type: "address" }, { name: "baseFundingTxHash", type: "bytes32" },
+            ] }, { bountyId: cached.bountyId, attemptIndex: cachedAttempt.attemptIndex, appellant: getAddress(fresh.appealed_by), baseFundingTxHash: fresh.appeal_base_funding_tx_hash });
+            await (await escrow.bindAppeal(cached.bountyId, cachedAttempt.attemptIndex, fresh.appeal_base_funding_tx_hash, authorization)).wait();
+            baseAttempt = await escrow.attempts(cached.bountyId, cachedAttempt.attemptIndex);
+          }
           let outcome = 0; let payout = 0; let recipient = "";
           if (fresh.status_label === "WON") { outcome = 1; payout = fresh.last_payout_bps || 10_000; recipient = fresh.challenger; }
           else if (["LOST_RACE", "CANCELLED", "INSUFFICIENT_EVIDENCE_FINAL"].includes(fresh.status_label)) { outcome = 2; recipient = fresh.challenger; }
@@ -159,16 +198,8 @@ export async function relayBaseOnce(logger: Logger) {
             finalizedRecipient: fresh.appeal_bond_recipient,
             requiredBond: base.requiredBond,
             fundedBond: baseAttempt.appealBond,
-            resolvedAt: fresh.resolved_at,
-            now: Math.floor(Date.now() / 1000),
+            appealBound: baseAttempt.appealBound,
           });
-          if (appealPlan.defer) {
-            logger.error({ bountyId: cached.bountyId, attemptIndex: cachedAttempt.attemptIndex }, "base relay: finalized positive-bond appeal is inside its late-funding reconciliation window; settlement deferred");
-            continue;
-          }
-          if (appealPlan.fundingWaived) {
-            logger.error({ bountyId: cached.bountyId, attemptIndex: cachedAttempt.attemptIndex }, "base relay: appeal funding grace expired; settling core funds without a nonexistent appeal bond");
-          }
           const appealRecipient = appealPlan.appealRecipient;
           await execute(escrow, signer, domain, base, cached.bountyId, cachedAttempt.attemptIndex, outcome, payout, recipient, appealRecipient, fresh.status_label, fresh);
           base = await escrow.bounties(cached.bountyId);

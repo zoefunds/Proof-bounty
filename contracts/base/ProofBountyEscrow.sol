@@ -42,6 +42,8 @@ contract ProofBountyEscrow {
         address appealPayer;
         bool settled;
         uint256 reservationId;
+        uint64 appealAuthorizationExpiry;
+        bool appealBound;
     }
 
     IERC20 public immutable usdc;
@@ -77,6 +79,9 @@ contract ProofBountyEscrow {
     bytes32 private constant FUND_APPEAL_TYPEHASH = keccak256(
         "FundAppeal(uint256 bountyId,uint256 attemptIndex,address appellant,uint256 bond,address genlayerContract,uint64 authorizationExpiry)"
     );
+    bytes32 private constant BIND_APPEAL_TYPEHASH = keccak256(
+        "BindAppeal(uint256 bountyId,uint256 attemptIndex,address appellant,bytes32 baseFundingTxHash)"
+    );
 
     mapping(uint256 => Bounty) public bounties;
     mapping(uint256 => mapping(uint256 => PendingAttempt)) public pendingAttempts;
@@ -91,6 +96,8 @@ contract ProofBountyEscrow {
     event AttemptBound(uint256 indexed bountyId, uint256 indexed reservationId, uint256 indexed attemptIndex, address challenger, bytes32 baseFundingTxHash);
     event PendingAttemptRecovered(uint256 indexed bountyId, uint256 indexed reservationId, address indexed challenger, uint256 amount);
     event AppealFunded(uint256 indexed bountyId, uint256 indexed attemptIndex, address indexed appellant, uint256 bond);
+    event AppealBound(uint256 indexed bountyId, uint256 indexed attemptIndex, address indexed appellant, bytes32 baseFundingTxHash);
+    event UnactivatedAppealRecovered(uint256 indexed bountyId, uint256 indexed attemptIndex, address indexed appellant, uint256 bond);
     event DecisionExecuted(uint256 indexed bountyId, uint256 indexed attemptIndex, Outcome outcome, bytes32 decisionHash);
     event Claimed(address indexed account, uint256 amount);
     event OrphanRecovered(uint256 indexed bountyId, address indexed creator, uint256 amount);
@@ -254,7 +261,38 @@ contract ProofBountyEscrow {
         require(usdc.transferFrom(msg.sender, address(this), b.requiredBond), "ProofBounty: transferFrom failed");
         a.appealBond = b.requiredBond;
         a.appealPayer = msg.sender;
+        a.appealAuthorizationExpiry = authorizationExpiry;
         emit AppealFunded(bountyId, attemptIndex, msg.sender, b.requiredBond);
+    }
+
+    /// Bind the Base deposit only after the relay has observed the matching
+    /// finalized GenLayer funding attestation.
+    function bindAppeal(
+        uint256 bountyId,
+        uint256 attemptIndex,
+        bytes32 baseFundingTxHash,
+        bytes calldata authorization
+    ) external onlyRelayer {
+        Attempt storage a = attempts[bountyId][attemptIndex];
+        require(a.appealBond > 0 && !a.appealBound && !a.settled, "ProofBounty: appeal binding unavailable");
+        bytes32 instruction = keccak256(abi.encode(
+            BIND_APPEAL_TYPEHASH, bountyId, attemptIndex, a.appealPayer, baseFundingTxHash
+        ));
+        require(_isAuthorized(instruction, authorization), "ProofBounty: bad appeal binding authorization");
+        a.appealBound = true;
+        emit AppealBound(bountyId, attemptIndex, a.appealPayer, baseFundingTxHash);
+    }
+
+    /// A Base deposit that never activated a GenLayer appeal remains
+    /// recoverable by its payer without privileged service availability.
+    function recoverUnactivatedAppeal(uint256 bountyId, uint256 attemptIndex) external nonReentrant {
+        Attempt storage a = attempts[bountyId][attemptIndex];
+        require(msg.sender == a.appealPayer && a.appealBond > 0 && !a.appealBound && !a.settled, "ProofBounty: appeal recovery unavailable");
+        require(block.timestamp >= uint256(a.appealAuthorizationExpiry) + PENDING_ATTEMPT_RECOVERY_DELAY, "ProofBounty: appeal recovery delay");
+        uint256 amount = a.appealBond;
+        a.appealBond = 0;
+        claimable[msg.sender] += amount;
+        emit UnactivatedAppealRecovered(bountyId, attemptIndex, msg.sender, amount);
     }
 
     /// Winner settles the reward and its bond. BondRefund/BondForfeit settle
@@ -351,6 +389,7 @@ contract ProofBountyEscrow {
             require(appealRecipient == address(0), "ProofBounty: unexpected appeal recipient");
             return;
         }
+        require(a.appealBound, "ProofBounty: unactivated appeal bond");
         require(appealRecipient != address(0), "ProofBounty: missing appeal recipient");
         claimable[appealRecipient] += a.appealBond;
     }

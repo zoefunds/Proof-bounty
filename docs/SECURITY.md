@@ -21,9 +21,10 @@ threshold authorization infrastructure.
 - Attempt funding binds bounty, reservation, challenger, exact bond, GenLayer
   contract, and expiry.
 - Appeal funding binds the finalized GenLayer appellant, bounty, attempt,
-  exact appeal bond, GenLayer contract, and expiry. Finalization preserves the
-  declared amount for delayed authorization. Positive bonds have a seven-day
-  reconciliation window; zero-bond appeals settle without a deposit.
+  exact appeal bond, GenLayer contract, and expiry. Positive-bond appeals gain
+  no review rights until attestor-verified Base funding is bound. Reservations
+  expire after two hours and unactivated deposits are recoverable; zero-bond
+  appeals settle without a deposit.
 - Binding authorizations bind the finalized attempt index and Base funding
   transaction hash.
 - Settlement binds all economic fields, canonical state hash, nonce, and time

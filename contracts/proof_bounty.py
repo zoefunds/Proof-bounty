@@ -353,7 +353,7 @@ window is what makes "arbiter ruling with a mandatory GenLayer-consensus
 check" structurally real rather than cosmetic."""
 
 ATTEMPT_APPEALED: int = 10
-"""An appeal bond has been posted contesting the arbiter's pending
+"""An appeal bond has been verified on Base (or the required bond is zero), contesting the arbiter's pending
 resolution, escalating EARLY to the same second, independent round of
 GenLayer validator consensus (`resolve_appeal`) that `finalize_arbiter_
 resolution` runs automatically anyway once the appeal window closes. This
@@ -371,6 +371,12 @@ in consequence as well as meaning: the bond is auto-refunded here (see
 evidence could confidently settle this" is not the challenger's fault the
 way a demonstrably-wrong submission is."""
 
+ATTEMPT_APPEAL_PENDING_FUNDING: int = 12
+"""A positive-bond appeal has been reserved by an eligible party but has
+not yet been activated. It receives no consensus-review rights until the
+funding attestor confirms the exact Base deposit. Anyone may expire an
+abandoned reservation after its bounded funding deadline."""
+
 ATTEMPT_STATUS_LABELS: typing.Final[dict[int, str]] = {
     ATTEMPT_ACCEPTED: "ACCEPTED",
     ATTEMPT_SUBMITTED: "SUBMITTED",
@@ -384,6 +390,7 @@ ATTEMPT_STATUS_LABELS: typing.Final[dict[int, str]] = {
     ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL: "ARBITER_RESOLVED_PENDING_APPEAL",
     ATTEMPT_APPEALED: "APPEALED",
     ATTEMPT_INSUFFICIENT_EVIDENCE_FINAL: "INSUFFICIENT_EVIDENCE_FINAL",
+    ATTEMPT_APPEAL_PENDING_FUNDING: "APPEAL_PENDING_FUNDING",
 }
 
 # Attempt states an ordinary (non-arbiter) timeout/settlement path may act
@@ -416,6 +423,7 @@ _ATTEMPT_DISPUTE_IN_PROGRESS_STATES: typing.Final[tuple[int, ...]] = (
     ATTEMPT_DISPUTED,
     ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL,
     ATTEMPT_APPEALED,
+    ATTEMPT_APPEAL_PENDING_FUNDING,
 )
 
 # --- Verdicts returned by the AI consensus check ---
@@ -780,6 +788,8 @@ class Attempt:
     appeal_bond_recipient: Address
     """Base Sepolia recipient selected by the finalized appeal outcome.
     Zero until an appeal is resolved; no funds are held on GenLayer."""
+    appeal_funding_deadline: u256
+    appeal_base_funding_tx_hash: str
 
     created_at: u256
     submitted_at: u256
@@ -2028,6 +2038,8 @@ parsable by a JSON parser without errors:
             appeal_reason="",
             appeal_bond_deposited=u256(0),
             appeal_bond_recipient=self._zero_address(),
+            appeal_funding_deadline=u256(0),
+            appeal_base_funding_tx_hash="",
             created_at=u256(now),
             submitted_at=u256(0),
             resolved_at=u256(0),
@@ -2454,8 +2466,9 @@ parsable by a JSON parser without errors:
         an arbiter's PENDING (not yet finalized) resolution before its
         appeal window closes, escalating the final call to a SECOND,
         independent round of GenLayer validator consensus via
-        `resolve_appeal` -- not a human owner's personal judgment. Requires
-        posting an appeal bond of EXACTLY the attempt's own `bond_amount`
+        `resolve_appeal` -- not a human owner's personal judgment. A positive
+        bond reserves funding first and only activates after attestation of an
+        exact Base deposit matching the attempt's own `bond_amount`
         (reusing an amount already meaningful to this specific attempt
         rather than inventing a new protocol-wide constant) -- forfeited to
         the non-appealing party if that fresh consensus agrees with the
@@ -2474,11 +2487,47 @@ parsable by a JSON parser without errors:
             raise gl.vm.UserError("An appeal reason must be provided")
 
         sent = attempt.bond_amount
-
-        attempt.status = u8(ATTEMPT_APPEALED)
         attempt.appealed_by = gl.message.sender_address
         attempt.appeal_reason = _truncate(reason, MAX_CRITERIA_LEN)
         attempt.appeal_bond_deposited = sent
+        if sent == u256(0):
+            attempt.status = u8(ATTEMPT_APPEALED)
+        else:
+            attempt.status = u8(ATTEMPT_APPEAL_PENDING_FUNDING)
+            attempt.appeal_funding_deadline = u256(self._now() + FUNDING_RESERVATION_SECONDS)
+
+    @gl.public.write
+    def confirm_appeal_funding(self, bounty_id: int, attempt_index: int, base_funding_tx_hash: str) -> None:
+        """Activate a positive-bond appeal only after the configured attestor
+        has reconciled its exact Base escrow deposit."""
+        if gl.message.sender_address != self.funding_attestor:
+            raise gl.vm.UserError("Caller is not the funding attestor")
+        attempt = self._get_attempt(bounty_id, attempt_index)
+        if attempt.status != ATTEMPT_APPEAL_PENDING_FUNDING:
+            raise gl.vm.UserError("Appeal funding reservation is unavailable")
+        if self._now() > int(attempt.appeal_funding_deadline):
+            raise gl.vm.UserError("Appeal funding reservation has expired")
+        if not base_funding_tx_hash or len(base_funding_tx_hash) != 66 or not base_funding_tx_hash.startswith("0x"):
+            raise gl.vm.UserError("A 32-byte Base funding transaction hash is required")
+        attempt.appeal_base_funding_tx_hash = base_funding_tx_hash
+        attempt.status = u8(ATTEMPT_APPEALED)
+
+    @gl.public.write
+    def expire_appeal_funding(self, bounty_id: int, attempt_index: int) -> None:
+        """Permissionless cleanup for an abandoned positive-bond appeal.
+        Restores the underlying pending ruling so normal final consensus can
+        proceed immediately when its original appeal window has elapsed."""
+        attempt = self._get_attempt(bounty_id, attempt_index)
+        if attempt.status != ATTEMPT_APPEAL_PENDING_FUNDING:
+            raise gl.vm.UserError("Appeal funding reservation is not pending")
+        if self._now() <= int(attempt.appeal_funding_deadline):
+            raise gl.vm.UserError("Appeal funding reservation has not expired")
+        attempt.status = u8(ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL)
+        attempt.appealed_by = self._zero_address()
+        attempt.appeal_reason = ""
+        attempt.appeal_bond_deposited = u256(0)
+        attempt.appeal_funding_deadline = u256(0)
+        attempt.appeal_base_funding_tx_hash = ""
 
     def _settle_via_second_consensus(
         self, bounty_id: int, attempt_index: int, bounty: Bounty, attempt: "Attempt",
@@ -2574,7 +2623,7 @@ parsable by a JSON parser without errors:
         in `finalize_arbiter_resolution` (see `_settle_via_second_consensus`,
         shared by both).
 
-        The appeal bond posted in `appeal_arbiter_resolution` is returned
+        The appeal bond verified after `appeal_arbiter_resolution` is returned
         to the appellant if this fresh consensus's economic conclusion
         DIFFERS from the arbiter's original pending verdict (the appeal
         succeeded), or forfeited to the non-appealing counterparty if it
@@ -2808,6 +2857,8 @@ parsable by a JSON parser without errors:
             "appeal_reason": a.appeal_reason,
             "appeal_bond_deposited": int(a.appeal_bond_deposited),
             "appeal_bond_recipient": a.appeal_bond_recipient.as_hex,
+            "appeal_funding_deadline": int(a.appeal_funding_deadline),
+            "appeal_base_funding_tx_hash": a.appeal_base_funding_tx_hash,
             "created_at": int(a.created_at),
             "submitted_at": int(a.submitted_at),
             "resolved_at": int(a.resolved_at),

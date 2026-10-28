@@ -90,15 +90,13 @@ authorized binding creates the Base attempt with a zero bond, so a finalized
 winner still has a reward settlement path and the recovered bond cannot be
 paid twice.
 
-Appeal funding uses a separate short-lived EIP-712 authorization issued only
-after a fresh GenLayer read identifies the finalized appellant. The relay
-can authorize a positive-bond deposit even after GenLayer resolution because
-the finalized declaration is retained. It defers settlement for a seven-day
-late-funding window. A deposit made in that window is allocated to the exact
-finalized recipient. If no deposit ever existed, the relay then passes a zero
-appeal recipient and settles the reward/original bond without fabricating an
-asset or diverting escrow funds. Zero-bond appeals require no Base funding and
-settle immediately.
+Appeal funding uses a short-lived EIP-712 authorization issued only after a
+fresh GenLayer read identifies the pending appellant. A positive-bond appeal
+cannot run its consensus review until the attestor verifies the exact Base
+receipt and the relay binds that deposit. Unfunded reservations expire after
+two hours, restoring the ordinary finalization path. A deposited but
+unactivated bond is recoverable by its payer after the Base delay. Zero-bond
+appeals require no Base funding and activate immediately.
 
 ## Reproducible verification
 
@@ -111,5 +109,5 @@ cd ../web && npm ci && npm run lint && npx tsc --noEmit && npm run build
 
 `testEndToEndFundBindSettleAndRecipientClaim` covers the complete Base custody
 path. Dedicated tests also cover zero-bond appeal settlement and claims,
-positive late appeal funding and claims, the bounded missing-funding fallback,
-and preservation of finalized GenLayer appeal terms.
+positive attested appeal funding and claims, rejection of unbound collateral,
+and safe expiry/recovery of abandoned funding.

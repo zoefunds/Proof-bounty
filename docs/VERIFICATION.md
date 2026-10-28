@@ -9,18 +9,18 @@ Postgres index/cache was cleared after the cutover; live health reports
 
 ## Deployed components
 
-- GenLayer adjudication: `0x89322f6fc61872B812E4BE9E647F2154B7f73BE1`
-- Base Sepolia escrow: `0xEA3Ee1bD267C343c6C8e7C8C24bcfd401836dC83`
+- GenLayer adjudication: `0x0B083A0618C408cd4Af32EF4e507fE13e1184e66`
+- Base Sepolia escrow: `0x71A6C9f3eA9026009b51463013743e4781F327c9`
 - Base Sepolia USDC: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
 - Frontend: <https://proof-bounty.vercel.app>
 - API/relay: <https://proofbounty-usdc-api.fly.dev>
 
 The Base deployment transaction is
-`0x3e932ab5231334eb9164d1bb6c3e3d5c449cbd4b8513e54f96d4208ff7c88189`.
+`0xe460458d84e3ee662ff61af8b91755e3ac15e6273b1c53ed12b6e1bf27c5ab44`.
 The GenLayer deployment transaction is
-`0x13ebb667d51b2eeb80aa37987fd02e1bf19c4c41690cb853eae3fa1e96cdf063`.
+`0x8d5a30729755a15a9a628d7a907c1815efee53ae29245ba6be605bbcbbda7312`.
 The funding-attestor configuration transaction is
-`0x12fa6649d412019060d287775e646da0aaed9639b05e87bad6796498f89154d2`.
+`0xae58b0f5b73ed2f3fd7a72af9acdb5b5419445123ce2cf816c89f27069cc03f3`.
 
 Live reads on the current deployment report GenLayer bounty count `0`, contract
 balance `0`, and fee `250`. Base getters resolve to the USDC, relayer, decision
@@ -39,7 +39,7 @@ gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
 (cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
 ```
 
-The 13-test Foundry suite includes the complete Base flow: identity-authorized funding,
+The 14-test Foundry suite includes the complete Base flow: identity-authorized funding,
 reservation binding, nonce- and time-bound settlement, recipient accounting,
 and pull claim. It also exercises index squatting, mismatched identities,
 unauthorized binding, stale/conflicting/expired decisions, replay, and both
@@ -48,12 +48,11 @@ bounty funding with slot reuse after orphan recovery, eligible-appellant-only
 appeal funding, and late zero-bond binding after a recovered reservation whose
 GenLayer attempt had already activated.
 
-The appeal-liveness regressions prove both required timing cases: a zero-bond
-appeal settles and claims without a Base appeal deposit, while a positive-bond
-appeal finalized before Base funding can be funded later, settled, and claimed.
-Four backend reconciliation tests additionally prove immediate zero-bond
-settlement, late-deposit allocation, amount mismatch rejection, and the
-seven-day fallback that waives only an appeal bond that never existed.
+The appeal-integrity regressions prove that zero-bond appeals settle without a
+deposit, positive-bond appeals cannot resolve before attestation, unauthorized
+attestors cannot activate them, abandoned reservations expire safely, and a
+properly funded and Base-bound appeal pays the finalized recipient. Five
+backend tests reject missing, unbound, and mismatched positive collateral.
 
 The direct GenLayer tests demonstrate that arbitrary unfunded reservations do
 not consume the funded-attempt cap and that only the configured funding

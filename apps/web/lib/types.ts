@@ -48,6 +48,8 @@ export interface AttemptDetail {
   appeal_reason: string;
   appeal_bond_deposited: string | number;
   appeal_bond_recipient: string;
+  appeal_funding_deadline: number;
+  appeal_base_funding_tx_hash: string;
   created_at: number;
   submitted_at: number;
   resolved_at: number;

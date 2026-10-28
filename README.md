@@ -10,8 +10,8 @@ six-decimal USDC. GenLayer never holds tokens.
 |---|---|
 | Frontend | <https://proof-bounty.vercel.app> |
 | API, indexer, and relay | <https://proofbounty-usdc-api.fly.dev> |
-| GenLayer StudioNet adjudication | `0x89322f6fc61872B812E4BE9E647F2154B7f73BE1` |
-| Base Sepolia escrow | `0xEA3Ee1bD267C343c6C8e7C8C24bcfd401836dC83` |
+| GenLayer StudioNet adjudication | `0x0B083A0618C408cd4Af32EF4e507fE13e1184e66` |
+| Base Sepolia escrow | `0x71A6C9f3eA9026009b51463013743e4781F327c9` |
 | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | Base chain ID | `84532` |
 
@@ -54,9 +54,10 @@ attempts become `LOST_RACE` and can recover their bonds.
 - Bounty funding is authorized for the finalized GenLayer creator; recovered
   orphan deposits release the predictable Base bounty slot for a clean retry.
 - Appeal funding is authorized only for the finalized GenLayer appellant.
-- Finalized positive-bond appeals retain their declared amount for seven days
-  of late Base funding; afterward core settlement proceeds without inventing
-  an unfunded appeal allocation. Zero-bond appeals settle immediately.
+- Positive-bond appeals remain pending and non-resolvable until the funding
+  attestor verifies the exact Base deposit and the relay binds it. Abandoned
+  reservations expire after two hours; unactivated deposits are recoverable.
+  Zero-bond appeals activate immediately without a nonexistent deposit.
 - Recovery after GenLayer activation does not destroy reconciliation: the
   attempt remains bindable with a zero bond after the bond refund.
 - Settlements bind every economic field, a canonical GenLayer state hash, a
@@ -98,7 +99,7 @@ gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
 (cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
 ```
 
-Current results: Foundry 13/13, backend appeal reconciliation 4/4, selected
+Current results: Foundry 14/14, backend appeal reconciliation 5/5, selected
 deterministic GenLayer direct tests 5/5, backend build passing, and frontend
 production build passing. GitHub
 Actions contains these jobs, but GitHub currently refuses to start runners

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { confirmAttemptFunding, createAppealFundingAuthorization, createAttemptFundingAuthorization, createBountyFundingAuthorization } from "../services/base-relayer.js";
+import { confirmAppealFunding, confirmAttemptFunding, createAppealFundingAuthorization, createAttemptFundingAuthorization, createBountyFundingAuthorization } from "../services/base-relayer.js";
 
 const identity = z.object({
   bountyId: z.number().int().nonnegative(),
@@ -35,5 +35,11 @@ export async function baseFundingRoutes(app: FastifyInstance) {
     if (!parsed.success) return reply.code(400).send({ error: "invalid_request", details: parsed.error.flatten() });
     try { return await createAppealFundingAuthorization(parsed.data.bountyId, parsed.data.attemptIndex, parsed.data.appellant); }
     catch (error) { return reply.code(409).send({ error: "appeal_funding_authorization_refused", message: error instanceof Error ? error.message : "authorization refused" }); }
+  });
+  app.post("/base/appeal-funding-confirmation", async (request, reply) => {
+    const parsed = z.object({ bountyId: z.number().int().nonnegative(), attemptIndex: z.number().int().nonnegative(), appellant: z.string().regex(/^0x[0-9a-fA-F]{40}$/), baseFundingTxHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/) }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_request", details: parsed.error.flatten() });
+    try { return await confirmAppealFunding(parsed.data.bountyId, parsed.data.attemptIndex, parsed.data.appellant, parsed.data.baseFundingTxHash); }
+    catch (error) { return reply.code(409).send({ error: "appeal_funding_confirmation_failed", message: error instanceof Error ? error.message : "confirmation failed" }); }
   });
 }

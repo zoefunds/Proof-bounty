@@ -67,11 +67,11 @@ An explicit appeal or permissionless post-window finalization runs a second
 GenLayer consensus round. The final GenLayer state is relayed to Base only
 after a fresh direct read.
 
-Resolved appeals retain their declared appeal-bond amount as cross-chain
-evidence. A positive-bond appeal may be funded on Base for seven days after
-resolution; settlement waits during that reconciliation window. If no deposit
-ever existed, the relay then settles core funds with no appeal allocation.
-Zero-bond appeals bypass funding and settle immediately.
+Positive-bond appeals enter a two-hour `APPEAL_PENDING_FUNDING` reservation.
+They cannot run the second consensus review until the attestor verifies the
+exact Base receipt and the relay binds that deposit. An abandoned reservation
+expires back to the underlying pending ruling, and an unactivated Base deposit
+is recoverable by its payer. Zero-bond appeals activate immediately.
 
 ## Settlement state machine
 
