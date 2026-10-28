@@ -7,8 +7,8 @@ authoritative description of the current payment boundary.
 
 | Layer | Network | Address | Responsibility |
 |---|---|---|---|
-| Adjudication | GenLayer StudioNet | `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2` | Evidence fetch, validator consensus, disputes, final state |
-| Payments | Base Sepolia | `0x4fD51A722A6E7Eb939Ba790b58759E12CB2dd2c6` | USDC custody, allocation, pull claims |
+| Adjudication | GenLayer StudioNet | `0x043b97cB152Bf930017d48aD05FA631004c7158f` | Evidence fetch, validator consensus, disputes, final state |
+| Payments | Base Sepolia | `0xF93548faf36D2d613A41f3e6A85D9C98bFF50dEf` | USDC custody, allocation, pull claims |
 | Token | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | Six-decimal settlement asset |
 
 ## Live applications

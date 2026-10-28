@@ -6,13 +6,17 @@ being mistaken for production configuration.
 
 ## Production
 
-- GenLayer adjudication: `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2`
-- Base Sepolia escrow: `0x4fD51A722A6E7Eb939Ba790b58759E12CB2dd2c6`
+- GenLayer adjudication: `0x043b97cB152Bf930017d48aD05FA631004c7158f`
+- Base Sepolia escrow: `0xF93548faf36D2d613A41f3e6A85D9C98bFF50dEf`
 - Base Sepolia USDC: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
 - Frontend: `https://proof-bounty.vercel.app`
 - API/relay: `https://proofbounty-usdc-api.fly.dev`
 - Fly app/database: `proofbounty-usdc-api` / `proofbounty-usdc-db`
 - Release source: current `main` branch.
+- Live namespace: 2 indexed bounties, both reward-funded and Base-registered,
+  with 12 USDC held for rewards in aggregate.
+- API release: Fly `v23` (`3Ao2wbV00g5oQUD2p9Y0ZBq2X`).
+- Frontend deployment: Vercel `dpl_3SNYVbwQHuGi7b1vAnM4upgT531C`.
 
 GenLayer is adjudication-only and all write methods are non-payable. Base is
 the only token custodian. Payments use six-decimal USDC.
@@ -55,6 +59,7 @@ or documentation.
 - Frontend lint/typecheck and Vercel production build: passing.
 - Deployed GenLayer source matches `contracts/proof_bounty.py` exactly.
 - Production API health is good.
+- Production route/API E2E matrix: all checks in `docs/E2E-TESTS.md` passing.
 - GitHub Actions runner startup is blocked by the repository owner's billing
   lock; workflow steps do not currently execute.
 

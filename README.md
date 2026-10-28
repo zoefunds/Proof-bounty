@@ -10,8 +10,8 @@ six-decimal USDC. GenLayer never holds tokens.
 |---|---|
 | Frontend | <https://proof-bounty.vercel.app> |
 | API, indexer, and relay | <https://proofbounty-usdc-api.fly.dev> |
-| GenLayer StudioNet adjudication | `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2` |
-| Base Sepolia escrow | `0x4fD51A722A6E7Eb939Ba790b58759E12CB2dd2c6` |
+| GenLayer StudioNet adjudication | `0x043b97cB152Bf930017d48aD05FA631004c7158f` |
+| Base Sepolia escrow | `0xF93548faf36D2d613A41f3e6A85D9C98bFF50dEf` |
 | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | Base chain ID | `84532` |
 
@@ -102,7 +102,7 @@ runbook.
 forge test -vv
 genvm-lint lint contracts/proof_bounty.py --json
 gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
-(cd apps/api && npm ci && npx tsc --noEmit && npx prisma generate && npm run build)
+(cd apps/api && npm ci && npm test && npx tsc --noEmit && npx prisma generate && npm run build)
 (cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
 ```
 
@@ -142,5 +142,6 @@ development keys for relay, decision signing, and funding attestation.
 - [Deployment](docs/DEPLOYMENT.md)
 - [Environment variables](docs/ENVIRONMENT.md)
 - [Verification record](docs/VERIFICATION.md)
+- [Production E2E tests](docs/E2E-TESTS.md)
 - [Contract invariant review](docs/CONTRACT_REVIEW.md)
 - [Contributing](docs/CONTRIBUTING.md)

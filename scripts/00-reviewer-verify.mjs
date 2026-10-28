@@ -102,5 +102,5 @@ if (process.exitCode === 1) {
   console.log("  Some checks FAILED -- see ✗ marks above.");
 } else {
   console.log("  All automated checks passed. This is read-side verification only;");
-  console.log("  run the test suite and/or scripts/01-13 for full write-path proof.");
+  console.log("  run the suites in docs/VERIFICATION.md and review docs/E2E-TESTS.md for write-path proof.");
 }

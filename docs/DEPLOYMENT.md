@@ -4,13 +4,15 @@
 
 | Component | Value |
 |---|---|
-| GenLayer StudioNet | `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2` |
-| Base Sepolia escrow | `0x4fD51A722A6E7Eb939Ba790b58759E12CB2dd2c6` |
+| GenLayer StudioNet | `0x043b97cB152Bf930017d48aD05FA631004c7158f` |
+| Base Sepolia escrow | `0xF93548faf36D2d613A41f3e6A85D9C98bFF50dEf` |
 | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | Frontend | <https://proof-bounty.vercel.app> |
 | Fly app | `proofbounty-usdc-api` |
 | API | <https://proofbounty-usdc-api.fly.dev> |
 | Postgres | `proofbounty-usdc-db` |
+| Fly release | `v23` (`3Ao2wbV00g5oQUD2p9Y0ZBq2X`) |
+| Vercel deployment | `dpl_3SNYVbwQHuGi7b1vAnM4upgT531C` |
 
 Live service roles:
 

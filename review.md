@@ -19,8 +19,8 @@ This is the current response to the funding and settlement integrity reviews.
 
 This document tracks the current `main` release.
 
-- GenLayer: `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2`
-- Base escrow: `0x4fD51A722A6E7Eb939Ba790b58759E12CB2dd2c6`
+- GenLayer: `0x043b97cB152Bf930017d48aD05FA631004c7158f`
+- Base escrow: `0xF93548faf36D2d613A41f3e6A85D9C98bFF50dEf`
 - Frontend: <https://proof-bounty.vercel.app>
 - API/relay: <https://proofbounty-usdc-api.fly.dev>
 
