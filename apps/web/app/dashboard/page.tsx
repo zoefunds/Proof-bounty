@@ -65,7 +65,7 @@ export default function DashboardPage() {
                 Total Earned (as challenger)
               </div>
               <div className="font-headline text-3xl text-action-green">
-                {formatGen(rep?.total_earned ?? 0)} <span className="text-sm">GEN</span>
+                {formatGen(rep?.total_earned ?? 0)} <span className="text-sm">USDC</span>
               </div>
             </Card>
             <Card className="p-6">
@@ -73,7 +73,7 @@ export default function DashboardPage() {
                 Total Funded (as creator)
               </div>
               <div className="font-headline text-3xl text-tertiary-fixed-dim">
-                {formatGen(rep?.bounties_funded_total ?? 0)} <span className="text-sm">GEN</span>
+                {formatGen(rep?.bounties_funded_total ?? 0)} <span className="text-sm">USDC</span>
               </div>
             </Card>
           </div>

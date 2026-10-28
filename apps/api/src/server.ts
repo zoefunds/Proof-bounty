@@ -9,6 +9,7 @@ import { activityRoutes } from "./routes/activity.js";
 import { reputationRoutes } from "./routes/reputation.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { evidenceRoutes } from "./routes/evidence.js";
+import { startBaseRelayer } from "./services/base-relayer.js";
 
 const app = Fastify({
   logger: {
@@ -58,10 +59,12 @@ app.setErrorHandler((error: FastifyError, _request, reply) => {
 });
 
 const indexerTimer = startIndexer(app.log);
+const baseRelayerTimer = startBaseRelayer(app.log);
 
 async function shutdown(signal: string) {
   app.log.info({ signal }, "shutting down");
   clearInterval(indexerTimer);
+  if (baseRelayerTimer) clearInterval(baseRelayerTimer);
   await app.close();
   await prisma.$disconnect();
   process.exit(0);

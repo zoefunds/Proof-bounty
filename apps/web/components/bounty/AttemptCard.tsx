@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useWallet } from "@/lib/wallet-context";
 import { useContractWrite } from "@/lib/use-contract-write";
+import { useBaseEscrow } from "@/lib/base-escrow";
 import { useNow } from "@/lib/use-now";
 import { formatGen, truncateAddress, formatTimestamp, bpsToPercent } from "@/lib/format";
 import { api, isApiConfigured, type EvidenceArchiveItem } from "@/lib/api-client";
@@ -115,6 +116,8 @@ export function AttemptCard({
   const forfeitTx = useContractWrite();
   const finalizeTx = useContractWrite();
   const appealTx = useContractWrite();
+  const baseEscrow = useBaseEscrow();
+  const [baseError, setBaseError] = useState<string | null>(null);
 
   const now = useNow();
   const appealWindowOpen =
@@ -191,16 +194,18 @@ export function AttemptCard({
     const ok = await appealTx.write({
       functionName: "appeal_arbiter_resolution",
       args: [bounty.bounty_id, attempt.index, appealReason],
-      // attempt.bond_amount is already a wei-denominated integer -- BigInt
-      // it directly (matching accept_bounty's pattern) rather than round-
-      // tripping through Number/1e18, which loses precision for any real
-      // bond amount (all comfortably exceed Number.MAX_SAFE_INTEGER) and
-      // would make the contract's exact-match check on this value revert.
-      value: BigInt(attempt.bond_amount),
     });
     if (ok) {
-      setShowAppealForm(false);
-      onChanged();
+      try {
+        if (BigInt(attempt.bond_amount) > 0n) {
+          await baseEscrow.approve();
+          await baseEscrow.fundAppeal(bounty.bounty_id, attempt.index);
+        }
+        setShowAppealForm(false);
+        onChanged();
+      } catch (err) {
+        setBaseError(err instanceof Error ? err.message : String(err));
+      }
     }
   }
 
@@ -210,7 +215,7 @@ export function AttemptCard({
         <div>
           <div className="font-mono-data text-xs text-electric-blue">{truncateAddress(attempt.challenger)}</div>
           <div className="font-body text-xs text-on-surface-variant mt-0.5">
-            Attempt #{attempt.index} · bond {formatGen(attempt.bond_deposited || attempt.bond_amount)} GEN
+            Attempt #{attempt.index} · bond {formatGen(attempt.bond_deposited || attempt.bond_amount)} USDC
           </div>
         </div>
         <StatusPill status={attempt.status_label} />
@@ -423,7 +428,7 @@ export function AttemptCard({
         <div className="flex flex-col gap-3 pt-2 border-t border-border-subtle">
           <div>
             <Label>
-              Appeal Reason — requires posting {formatGen(attempt.bond_amount)} GEN as an appeal bond, forfeited
+              Appeal Reason — requires posting {formatGen(attempt.bond_amount)} USDC on Base Sepolia as an appeal bond, forfeited
               to the other party if the owner agrees with the arbiter
             </Label>
             <GlassTextarea
@@ -434,6 +439,7 @@ export function AttemptCard({
             />
           </div>
           <TxStateBanner state={appealTx.state} txHash={appealTx.txHash} errorMessage={appealTx.errorMessage} />
+          {baseError && <p className="font-body text-xs text-status-rejected">Base Sepolia appeal funding failed: {baseError}</p>}
           <div className="flex gap-2">
             <Button size="sm" variant="danger" onClick={handleAppeal} isLoading={appealTx.isBusy} disabled={!appealReason}>
               Post Bond & Appeal

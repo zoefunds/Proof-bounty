@@ -1,5 +1,12 @@
 # Deployment
 
+> The USDC milestone supersedes the legacy addresses and GEN custody steps
+> below. Current GenLayer: `0x8566beF0B3507415F29229a9D9A26BF41a9cA505`.
+> Current Base Sepolia escrow: `0x6DC21933ec3D013542185482850C96c753d10cfc`.
+> Current backend: `https://proofbounty-usdc-api.fly.dev` (`proofbounty-usdc-api`).
+> Use [`../MILESTONE-USDC.md`](../MILESTONE-USDC.md) as the authoritative
+> production runbook while the historical deployment narrative is retained.
+
 Everything described here is already deployed and live. This document
 explains how, and how to redeploy after changes.
 
@@ -68,19 +75,21 @@ Production environment variables (set via `vercel env add ... production`):
 
 | Variable | Value |
 |---|---|
-| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` |
+| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | `0x8566beF0B3507415F29229a9D9A26BF41a9cA505` |
+| `NEXT_PUBLIC_BASE_ESCROW_ADDRESS` | `0x6DC21933ec3D013542185482850C96c753d10cfc` |
+| `NEXT_PUBLIC_BASE_USDC_ADDRESS` | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | `NEXT_PUBLIC_GENLAYER_NETWORK` | `studionet` |
 | `NEXT_PUBLIC_GENLAYER_RPC_URL` | `https://studio.genlayer.com/api` |
-| `NEXT_PUBLIC_API_URL` | `https://proofbounty-api.fly.dev` |
+| `NEXT_PUBLIC_API_URL` | `https://proofbounty-usdc-api.fly.dev` |
 
 To change one: `vercel env rm <NAME> production` then
 `vercel env add <NAME> production` (same `--scope` flag), then redeploy.
 
 ## Backend — Fly.io
 
-- App: `proofbounty-api`, org `personal`, region `iad`
-- Live URL: **https://proofbounty-api.fly.dev**
-- Postgres: Fly Postgres cluster `proofbounty-db` (attached via
+- App: `proofbounty-usdc-api`, account `gideon820001@gmail.com`, region `iad`
+- Live URL: **https://proofbounty-usdc-api.fly.dev**
+- Postgres: Fly Postgres cluster `proofbounty-usdc-db` (attached via
   `fly postgres attach`, which set `DATABASE_URL` automatically)
 - Scaled to **exactly 1 machine** (`fly scale count 1`) — Fly's default
   HA behavior launches 2, which would double-consume the scarce GenLayer
@@ -92,16 +101,17 @@ Redeploy after changes:
 
 ```bash
 cd apps/api
-fly deploy --app proofbounty-api
+fly deploy --app proofbounty-usdc-api
 ```
 
-Secrets (set via `fly secrets set ... --app proofbounty-api`):
+Secrets (set via `fly secrets set ... --app proofbounty-usdc-api`):
 
 | Secret | Notes |
 |---|---|
 | `DATABASE_URL` | Auto-set by `fly postgres attach` |
-| `PROOFBOUNTY_CONTRACT_ADDRESS` | `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` |
-| `REDIS_URL` | Upstash instance, used only for GenLayer RPC pacing |
+| `PROOFBOUNTY_CONTRACT_ADDRESS` | `0x8566beF0B3507415F29229a9D9A26BF41a9cA505` |
+| `BASE_RELAYER_PRIVATE_KEY` | Base transaction signer; encrypted Fly secret |
+| `BASE_DECISION_SIGNER_PRIVATE_KEY` | Independent EIP-712 decision signer; encrypted Fly secret |
 
 Non-secret env vars live in `apps/api/fly.toml`'s `[env]` block
 (`GENLAYER_RPC_URL`, `CORS_ORIGIN`, `INDEXER_POLL_INTERVAL_MS`,
@@ -135,7 +145,7 @@ on the next `fly deploy` — no separate migration step needed in normal
 operation. To run one manually against production:
 
 ```bash
-fly ssh console --app proofbounty-api -C "npx prisma migrate deploy"
+fly ssh console --app proofbounty-usdc-api -C "npx prisma migrate deploy"
 ```
 
 ## Local development

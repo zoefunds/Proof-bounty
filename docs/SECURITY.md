@@ -225,7 +225,7 @@ none exists yet because the backend never fetches evidence URLs itself.
 - **CORS is scoped** to the deployed frontend origin
   (`CORS_ORIGIN=https://proof-bounty.vercel.app`) plus `localhost:3000`
   for local dev — verified live via
-  `curl -H "Origin: ..." -I https://proofbounty-api.fly.dev/bounties`.
+  `curl -H "Origin: ..." -I https://proofbounty-usdc-api.fly.dev/bounties`.
 - **No secrets ever logged or returned to clients**: the global error
   handler in `src/server.ts` returns internal error details only for 4xx
   (client) errors; 5xx messages are sanitized to a generic string, full

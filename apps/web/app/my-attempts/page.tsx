@@ -53,7 +53,7 @@ export default function MyAttemptsPage() {
                   <div>
                     <div className="font-body text-sm text-on-surface">{b.title}</div>
                     <div className="font-mono-data text-[11px] text-on-surface-variant mt-1">
-                      {formatGen(b.reward_amount)} GEN · {b.attempt_count} attempt(s)
+                      {formatGen(b.reward_amount)} USDC · {b.attempt_count} attempt(s)
                     </div>
                   </div>
                   <StatusPill status={b.status_label} />
@@ -76,7 +76,7 @@ export default function MyAttemptsPage() {
                   <div>
                     <div className="font-body text-sm text-on-surface">{bounty.title}</div>
                     <div className="font-mono-data text-[11px] text-on-surface-variant mt-1">
-                      Bond {formatGen(attempt.bond_deposited || attempt.bond_amount)} GEN
+                      Bond {formatGen(attempt.bond_deposited || attempt.bond_amount)} USDC
                       {attempt.last_payout_bps > 0 && ` · ${bpsToPercent(attempt.last_payout_bps)} payout`}
                     </div>
                   </div>

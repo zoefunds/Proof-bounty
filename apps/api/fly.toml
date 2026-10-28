@@ -1,4 +1,4 @@
-app = "proofbounty-api"
+app = "proofbounty-usdc-api"
 primary_region = "iad"
 
 [build]
@@ -10,6 +10,11 @@ primary_region = "iad"
   CORS_ORIGIN = "https://proof-bounty.vercel.app"
   INDEXER_POLL_INTERVAL_MS = "20000"
   GENLAYER_RPC_RATE_LIMIT_PER_MINUTE = "30"
+  GENLAYER_RPC_RATE_LIMIT_PER_HOUR = "480"
+  GENLAYER_RPC_RATE_LIMIT_PER_DAY = "4800"
+  BASE_SEPOLIA_RPC_URL = "https://sepolia.base.org"
+  BASE_ESCROW_ADDRESS = "0x6DC21933ec3D013542185482850C96c753d10cfc"
+  BASE_RELAY_INTERVAL_MS = "120000"
 
 [http_service]
   internal_port = 8080

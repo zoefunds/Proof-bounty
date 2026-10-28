@@ -12,7 +12,7 @@ const STATE_COPY: Record<TxState, string> = {
   FAILED: "Transaction failed.",
   TIMEOUT: "Timed out waiting for confirmation.",
   WRONG_NETWORK: "Wrong network selected in your wallet.",
-  INSUFFICIENT_FUNDS: "Insufficient GEN balance.",
+  INSUFFICIENT_FUNDS: "Insufficient gas or USDC balance.",
   RPC_ERROR: "Could not reach the network.",
   USER_REJECTED: "You rejected the transaction.",
 };

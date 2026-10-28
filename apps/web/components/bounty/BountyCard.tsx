@@ -42,13 +42,13 @@ export function BountyCard({ bounty }: { bounty: BountySummary }) {
           <div>
             <div className="font-mono-data text-[10px] text-on-surface-variant mb-1">REWARD</div>
             <div className="font-headline text-lg text-action-green">
-              {formatGen(bounty.reward_amount)} <span className="text-xs">GEN</span>
+              {formatGen(bounty.reward_amount)} <span className="text-xs">USDC</span>
             </div>
           </div>
           <div>
             <div className="font-mono-data text-[10px] text-on-surface-variant mb-1">REQ. BOND</div>
             <div className="font-headline text-base text-on-surface">
-              {formatGen(bounty.required_bond)} <span className="text-xs text-on-surface-variant">GEN</span>
+              {formatGen(bounty.required_bond)} <span className="text-xs text-on-surface-variant">USDC</span>
             </div>
           </div>
         </div>

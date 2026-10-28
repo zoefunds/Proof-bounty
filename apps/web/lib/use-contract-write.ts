@@ -70,7 +70,7 @@ function classifyError(err: unknown): { state: TxState; message: string } {
   if (lower.includes("insufficient funds") || lower.includes("insufficient balance")) {
     return {
       state: "INSUFFICIENT_FUNDS",
-      message: "Your wallet does not have enough GEN to cover this transaction.",
+      message: "Your wallet does not have enough gas to cover this GenLayer transaction.",
     };
   }
   if (lower.includes("chain") && (lower.includes("mismatch") || lower.includes("wrong"))) {

@@ -10,9 +10,10 @@ fetched web evidence.
 WHY THIS NEEDS GENLAYER -- NOT A CENTRALIZED ORACLE, NOT A PLAIN LLM CALL
 ======================================================================
 
-The core mechanic: a creator escrows GEN against a claim and a
-precommitted, immutable set of proof criteria. A challenger stakes a
-bond and points at a public URL as evidence. The contract itself fetches
+The core mechanic: a creator declares Base Sepolia USDC terms against a
+claim and precommitted, immutable proof criteria. A challenger records an
+attempt and points at a public URL as evidence. USDC reward/bond custody is
+handled exclusively by ProofBountyEscrow on Base Sepolia. This contract fetches
 that URL -- live, at verification time -- and every independent GenLayer
 validator judges the FETCHED CONTENT (never the challenger's own
 description of it) against the frozen criteria. Consensus on that
@@ -33,13 +34,10 @@ for "using GenLayer because it exists":
    outcome and no single validator's answer is what pays out --
    `gl.eq_principle.prompt_comparative` requires independent agreement
    (see "AVOIDING UNDETERMINED / LEADER-ROTATION OUTCOMES" below).
-2. **The decision moves real money, irreversibly, the moment it's
-   made.** A wrong or manipulated verdict doesn't just produce a bad
-   answer -- it produces a wrong payment that (outside the narrow,
-   bounded dispute path below) cannot be undone. That is a fundamentally
-   higher bar than "best-effort LLM output," and it's the reason every
-   payout path in this contract follows the strict zero-then-transfer
-   discipline described in SECTION 6/7/8 below.
+2. **The decision authorizes real money.** A wrong verdict can become a
+   wrong Base allocation. The payment contract therefore requires a
+   chain-bound EIP-712 instruction, exact identity/term matching, and
+   single-use settlement in addition to this consensus-final state.
 3. **The evidence is live, external, and adversarial by construction.**
    A challenger picks the URL. A centralized backend fetching that URL
    and reporting "I checked, it's fine" is asking every user to trust
@@ -57,19 +55,20 @@ sees. This contract's answer to both is the same mechanism: the fetch
 and the judgment happen inside consensus, not before it.
 
 ======================================================================
-END-TO-END TRACE: USER ACTION -> ESCROWED FUNDS -> GENVM FETCH ->
-                   VALIDATOR CONSENSUS -> IRREVERSIBLE STATE TRANSITION
+END-TO-END TRACE: BASE USDC -> GENVM FETCH -> VALIDATOR CONSENSUS ->
+                  EIP-712 RELAY -> BASE PULL CLAIM
 ======================================================================
 
-    `create_bounty(...)`  [creator, payable == reward_amount]
-        -> GEN moves creator wallet -> this contract. `Bounty.reward_deposited`
-           records exactly what's held. Criteria are stored but NOT yet
+    `create_bounty(...)`  [creator, non-payable, declares USDC terms]
+        -> Base escrow separately holds the exact reward. This contract's
+           mirrored ledger records adjudication state only. Criteria are NOT yet
            locked (still editable via `update_bounty_criteria`-style admin
            paths do not exist -- see below; the ONLY way criteria change
            after this point is that they become immutable on first accept).
 
-    `accept_bounty(bounty_id)`  [challenger, payable == required_bond]
-        -> GEN moves challenger wallet -> this contract. `Bounty.criteria_locked`
+    `accept_bounty(bounty_id)`  [challenger, non-payable]
+        -> The challenger separately funds the indexed Base attempt.
+           `Bounty.criteria_locked`
            flips permanently True on the FIRST call for a given bounty --
            from this instant on, NO code path in this contract can alter
            `proof_criteria`/`evidence_requirements`/`claim_text`. The
@@ -90,19 +89,14 @@ END-TO-END TRACE: USER ACTION -> ESCROWED FUNDS -> GENVM FETCH ->
            NEEDS_REVISION / INSUFFICIENT_EVIDENCE) is what
            `request_verification` receives back -- not a centralized
            service's opinion, not the challenger's claim.
-        -> `_settle_reward_to_winner` / `_refund_attempt_bond` /
-           `_forfeit_attempt_bond` execute the STATE TRANSITION: read the
-           relevant ledger field, zero it, persist the new terminal
-           status, and ONLY THEN call `_send_gen`. On APPROVED/PARTIAL
-           this is the payout leaving the contract for the challenger's
-           wallet; on REJECTED (once forfeiture is claimed) it is the
-           bond moving to the creator. Once `ATTEMPT_WON` is reached,
-           this is irreversible -- see the bounded-override guarantee
-           immediately below.
+        -> Settlement helpers persist the terminal adjudication state.
+           The backend derives a decision hash and EIP-712 instruction;
+           Base validates it, credits pull-payment balances exactly once,
+           and recipients claim USDC with their own wallets.
 
-That whole chain -- fund lock, criteria freeze, live fetch, independent
-judgment, agreed verdict, irreversible transfer -- is what "GenLayer
-decides a real payout" means concretely in this codebase, not as a
+That whole chain -- Base fund lock, criteria freeze, live fetch, independent
+judgment, agreed verdict, authorized Base allocation -- is what "GenLayer
+adjudicates a real payout" means concretely in this codebase, not as a
 marketing claim but as a traceable sequence of specific method calls
 any reviewer can follow and any test in `tests/integration/` can assert
 against.
@@ -756,6 +750,9 @@ class Attempt:
     arbiter (deterring frivolous appeals), returned to the appellant if
     that fresh consensus overturns the arbiter instead -- never a human
     owner's ruling."""
+    appeal_bond_recipient: Address
+    """Base Sepolia recipient selected by the finalized appeal outcome.
+    Zero until an appeal is resolved; no funds are held on GenLayer."""
 
     created_at: u256
     submitted_at: u256
@@ -896,35 +893,12 @@ class Reputation:
 
 
 # ============================================================================
-# SECTION 4: NATIVE VALUE TRANSFER
+# SECTION 4: PAYMENT BOUNDARY
 # ============================================================================
-# GenVM contracts have no built-in "send native token" statement. On this
-# pinned runner there are two similarly-named but NOT interchangeable
-# mechanisms for moving value out of the contract:
-#
-#   * `gl.get_contract_at(address).emit_transfer(...)` -- GenVM's native
-#     intelligent-contract-to-intelligent-contract message path. Does NOT
-#     settle a real balance for a plain externally-owned wallet (MetaMask-
-#     style EOA); calling it against an ordinary wallet fails with
-#     "Contract <address> not found".
-#   * `@gl.evm.contract_interface` + a stub's `.emit_transfer(value=...)`
-#     routes through the EVM-compatibility bridge instead, which IS the
-#     mechanism that delivers value to a plain wallet address -- the
-#     documented pattern in GenLayer's own `faucet.py` reference example.
-#
-# Every payout in PROOFBOUNTY goes to a bounty's creator/challenger/treasury
-# -- ordinary connected wallets, not other deployed contracts -- so the EVM
-# bridge path is the correct and only one used here. All of it funnels
-# through the single `_send_gen` helper below.
-
-
-@gl.evm.contract_interface
-class _Recipient:
-    class View:
-        pass
-
-    class Write:
-        pass
+# This Intelligent Contract is adjudication-only. It never accepts, holds,
+# or transfers value. Amount fields below are immutable USDC-denominated
+# terms and adjudication ledgers mirrored by the Base Sepolia payment layer;
+# contracts/base/ProofBountyEscrow.sol is the sole custodian and executor.
 
 
 # ============================================================================
@@ -1032,7 +1006,7 @@ class ProofBounty(gl.Contract):
     # Construction
     # ------------------------------------------------------------------
 
-    def __init__(self, treasury_address: str, default_fee_bps: int) -> None:
+    def __init__(self, treasury_address: Address, default_fee_bps: int) -> None:
         """
         Deploy the protocol.
 
@@ -1049,7 +1023,10 @@ class ProofBounty(gl.Contract):
             )
 
         self.owner = gl.message.sender_address
-        self.treasury = Address(treasury_address)
+        treasury = treasury_address if isinstance(treasury_address, Address) else Address(treasury_address)
+        if treasury == self._zero_address():
+            raise gl.vm.UserError("Treasury address must not be the zero address")
+        self.treasury = treasury
         self.default_fee_bps = u256(default_fee_bps)
         self.paused = False
         self.bounty_counter = u256(0)
@@ -1069,14 +1046,6 @@ class ProofBounty(gl.Contract):
 
     def _zero_address(self) -> Address:
         return Address("0x0000000000000000000000000000000000000000")
-
-    def _send_gen(self, to_address: Address, amount: u256) -> None:
-        """The single choke point through which native value ever leaves
-        this contract. See SECTION 4 for why the EVM-bridge path is the
-        correct mechanism for paying plain wallet addresses."""
-        if amount <= u256(0):
-            raise gl.vm.UserError("Transfer amount must be positive")
-        _Recipient(to_address).emit_transfer(value=amount)
 
     def _record_settlement_provenance(self, attempt: "Attempt") -> None:
         """
@@ -1226,15 +1195,7 @@ class ProofBounty(gl.Contract):
             challenger_rep.attempts_partial = challenger_rep.attempts_partial + u256(1)
         challenger_rep.total_earned = challenger_rep.total_earned + u256(challenger_net)
 
-        # --- transfers, strictly after every ledger field is zeroed and saved ---
-        if challenger_net > 0:
-            self._send_gen(attempt.challenger, u256(challenger_net))
-        if fee > 0:
-            self._send_gen(self.treasury, u256(fee))
-        if client_refund > 0:
-            self._send_gen(bounty.creator, u256(client_refund))
-        if bond > 0:
-            self._send_gen(attempt.challenger, bond)
+        # Base Sepolia executes this allocation from the finalized state.
 
     def _mark_other_attempts_lost_race(self, bounty_id: int, winning_index: int) -> None:
         """
@@ -1275,8 +1236,6 @@ class ProofBounty(gl.Contract):
         attempt.bond_deposited = u256(0)
         attempt.status = u8(new_status)
         attempt.resolved_at = u256(self._now())
-        if bond > 0:
-            self._send_gen(attempt.challenger, bond)
 
     def _forfeit_attempt_bond(self, bounty: Bounty, attempt: Attempt, via_arbiter: bool) -> None:
         """Same zero-bond-safe pattern as `_refund_attempt_bond`: a
@@ -1303,8 +1262,6 @@ class ProofBounty(gl.Contract):
             challenger_rep = self._get_or_create_reputation(attempt.challenger)
             challenger_rep.attempts_rejected = challenger_rep.attempts_rejected + u256(1)
 
-        if bond > 0:
-            self._send_gen(bounty.creator, bond)
 
     # ------------------------------------------------------------------
     # The non-deterministic, consensus-checked AI verification step.
@@ -1739,7 +1696,7 @@ parsable by a JSON parser without errors:
     # SECTION 7: PUBLIC WRITE METHODS -- BOUNTY LIFECYCLE
     # ==================================================================
 
-    @gl.public.write.payable
+    @gl.public.write
     def create_bounty(
         self,
         title: str,
@@ -1751,11 +1708,11 @@ parsable by a JSON parser without errors:
         arbiter_address: str,
         deadline_seconds_from_now: int,
         required_bond: int,
+        reward_amount: int,
     ) -> int:
         """
-        Create and fund a new bounty in a single transaction. `gl.message.value`
-        MUST exactly equal the reward being locked -- this contract never
-        accepts "at least" a deposit (see module docstring escrow section).
+        Create a non-payable adjudication record with USDC-denominated terms.
+        The matching reward is held and reconciled by the Base escrow.
         Returns the new bounty id.
 
         Args:
@@ -1774,8 +1731,8 @@ parsable by a JSON parser without errors:
             deadline_seconds_from_now: seconds from now until this bounty's
                 reward becomes reclaimable via `claim_creator_timeout` if
                 unsettled. Must be >= `MIN_BOUNTY_DEADLINE_SECONDS`.
-            required_bond: performance bond, in native units, every
-                challenger must lock exactly via `accept_bounty`. 0 means
+            required_bond: performance bond in six-decimal USDC base units,
+                funded on Base Sepolia. 0 means
                 no bond is required.
         """
         self._require_not_paused()
@@ -1807,9 +1764,9 @@ parsable by a JSON parser without errors:
         if arbiter == self._zero_address():
             raise gl.vm.UserError("Arbiter address must not be the zero address")
 
-        reward = gl.message.value
-        if int(reward) <= 0:
-            raise gl.vm.UserError("Reward must be funded with a positive GEN value")
+        if reward_amount <= 0:
+            raise gl.vm.UserError("reward_amount must be positive Base Sepolia USDC units")
+        reward = u256(reward_amount)
 
         now = self._now()
         bounty_id = self.bounty_counter
@@ -1872,8 +1829,6 @@ parsable by a JSON parser without errors:
         bounty.reward_deposited = u256(0)
         bounty.status = u8(BOUNTY_CANCELLED)
 
-        if refund > 0:
-            self._send_gen(bounty.creator, refund)
 
     @gl.public.write
     def claim_creator_timeout(self, bounty_id: int) -> None:
@@ -1933,7 +1888,6 @@ parsable by a JSON parser without errors:
         bounty.reward_deposited = u256(0)
         bounty.status = u8(BOUNTY_EXPIRED_REFUNDED)
 
-        self._send_gen(bounty.creator, refund)
 
     @gl.public.write
     def extend_bounty_deadline(self, bounty_id: int, additional_seconds: int) -> None:
@@ -1952,12 +1906,11 @@ parsable by a JSON parser without errors:
     # SECTION 8: PUBLIC WRITE METHODS -- ATTEMPT LIFECYCLE
     # ==================================================================
 
-    @gl.public.write.payable
+    @gl.public.write
     def accept_bounty(self, bounty_id: int) -> int:
         """
-        Open a new attempt against a bounty, locking the required bond in
-        the same transaction. `gl.message.value` MUST exactly equal the
-        bounty's `required_bond` (0 sent if no bond is required). Any
+        Open a new non-payable adjudication attempt. The matching bond is
+        funded and identity-bound by the Base Sepolia escrow. Any
         number of challengers may hold concurrent open attempts on the
         same OPEN bounty -- this is the marketplace "N attempts" model
         (module docstring) -- up to `MAX_ATTEMPTS_PER_BOUNTY`, which bounds
@@ -1987,12 +1940,7 @@ parsable by a JSON parser without errors:
         if sender == bounty.creator:
             raise gl.vm.UserError("A bounty's creator cannot also attempt their own bounty")
 
-        sent = gl.message.value
-        if int(sent) != int(bounty.required_bond):
-            raise gl.vm.UserError(
-                "Sent value must exactly equal this bounty's required_bond "
-                f"(expected {int(bounty.required_bond)}, got {int(sent)})"
-            )
+        sent = bounty.required_bond
 
         if not bounty.criteria_locked:
             bounty.criteria_locked = True
@@ -2026,6 +1974,7 @@ parsable by a JSON parser without errors:
             appealed_by=self._zero_address(),
             appeal_reason="",
             appeal_bond_deposited=u256(0),
+            appeal_bond_recipient=self._zero_address(),
             created_at=u256(now),
             submitted_at=u256(0),
             resolved_at=u256(0),
@@ -2247,7 +2196,6 @@ parsable by a JSON parser without errors:
         if bond <= u256(0):
             return
         attempt.bond_deposited = u256(0)
-        self._send_gen(attempt.challenger, bond)
 
     # ==================================================================
     # SECTION 9: PUBLIC WRITE METHODS -- DISPUTES & ARBITRATION
@@ -2429,7 +2377,7 @@ parsable by a JSON parser without errors:
         )
         return verdict
 
-    @gl.public.write.payable
+    @gl.public.write
     def appeal_arbiter_resolution(self, bounty_id: int, attempt_index: int, reason: str) -> None:
         """
         Either the bounty's creator or the attempt's challenger may contest
@@ -2455,12 +2403,7 @@ parsable by a JSON parser without errors:
         if not reason:
             raise gl.vm.UserError("An appeal reason must be provided")
 
-        sent = gl.message.value
-        if int(sent) != int(attempt.bond_amount):
-            raise gl.vm.UserError(
-                "Appeal bond must exactly equal this attempt's bond_amount "
-                f"(expected {int(attempt.bond_amount)}, got {int(sent)})"
-            )
+        sent = attempt.bond_amount
 
         attempt.status = u8(ATTEMPT_APPEALED)
         attempt.appealed_by = gl.message.sender_address
@@ -2599,10 +2542,10 @@ parsable by a JSON parser without errors:
             bounty_id, attempt_index, bounty, attempt, appeal_reason,
         )
         appeal_succeeded = not arbiter_upheld
+        attempt.appeal_bond_recipient = appellant if appeal_succeeded else counterparty
 
-        # --- appeal bond, strictly after everything else is settled ---
-        if appeal_bond > 0:
-            self._send_gen(appellant if appeal_succeeded else counterparty, appeal_bond)
+        # Base Sepolia routes the appeal bond to appellant/counterparty from
+        # this finalized outcome; GenLayer never transfers value.
 
         return verdict
 
@@ -2695,15 +2638,9 @@ parsable by a JSON parser without errors:
 
     @gl.public.view
     def get_contract_balance(self) -> int:
-        """Reads this contract's own native GEN balance via `self.balance`
-        -- the `gl.Contract` base class's own balance property (backed by
-        `wasi.get_self_balance()`; confirmed against the actual pinned SDK
-        at `genlayer/gl/genvm_contracts.py`, NOT a top-level `gl.get_balance`
-        / `gl.contract_address` API, which do not exist on this runner and
-        previously made this method crash with an AttributeError). Useful
-        for off-chain reconciliation against the sum of every bounty's
-        `reward_deposited` and every attempt's `bond_deposited`."""
-        return int(self.balance)
+        """Compatibility view. This adjudication contract is non-payable and
+        intentionally holds no funds; Base Sepolia escrow is authoritative."""
+        return 0
 
     @gl.public.view
     def get_bounty(self, bounty_id: int) -> dict:
@@ -2760,6 +2697,7 @@ parsable by a JSON parser without errors:
             "appealed_by": a.appealed_by.as_hex,
             "appeal_reason": a.appeal_reason,
             "appeal_bond_deposited": int(a.appeal_bond_deposited),
+            "appeal_bond_recipient": a.appeal_bond_recipient.as_hex,
             "created_at": int(a.created_at),
             "submitted_at": int(a.submitted_at),
             "resolved_at": int(a.resolved_at),

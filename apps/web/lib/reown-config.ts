@@ -43,6 +43,17 @@ export const studionetForReown = defineChain({
   testnet: true,
 });
 
+export const baseSepoliaForReown = defineChain({
+  id: 84532,
+  caipNetworkId: "eip155:84532",
+  chainNamespace: "eip155",
+  name: "Base Sepolia",
+  nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://sepolia.base.org"] } },
+  blockExplorers: { default: { name: "BaseScan", url: "https://sepolia.basescan.org" } },
+  testnet: true,
+});
+
 const metadata = {
   name: "PROOFBOUNTY",
   description: "Put money behind a claim. Then let the internet prove whether you earned it.",
@@ -52,7 +63,7 @@ const metadata = {
 
 export const appKit = createAppKit({
   adapters: [new EthersAdapter()],
-  networks: [studionetForReown],
+  networks: [studionetForReown, baseSepoliaForReown],
   defaultNetwork: studionetForReown,
   projectId: REOWN_PROJECT_ID,
   metadata,

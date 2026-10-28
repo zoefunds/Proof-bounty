@@ -8,6 +8,9 @@
  */
 
 export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS ?? "";
+export const BASE_ESCROW_ADDRESS = process.env.NEXT_PUBLIC_BASE_ESCROW_ADDRESS ?? "";
+export const BASE_USDC_ADDRESS = process.env.NEXT_PUBLIC_BASE_USDC_ADDRESS ?? "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+export const BASE_SEPOLIA_CHAIN_ID = 84532;
 
 export const GENLAYER_CHAIN = {
   name: process.env.NEXT_PUBLIC_GENLAYER_NETWORK ?? "studionet",

@@ -81,8 +81,9 @@ def _create_bounty(
             arbiter,
             deadline,
             bond,
+            reward,
         ]
-    ).transact(value=reward, wait_transaction_status=TransactionStatus.FINALIZED)
+    ).transact(wait_transaction_status=TransactionStatus.FINALIZED)
 
 
 # ============================================================================
@@ -815,7 +816,7 @@ def test_zero_bond_reclaim_after_settlement_is_a_safe_noop(direct_vm, direct_dep
     direct_vm.value = 10 * 10**18
     contract.create_bounty(
         "Prove the docs contradiction", "The docs at X claim Y but the code does Z.",
-        "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter, ONE_HOUR, 0,
+        "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter, ONE_HOUR, 0, 5 * 10**6,
     )
     direct_vm.value = 0
 
@@ -1129,7 +1130,7 @@ def test_finalize_never_trusts_arbiter_even_when_unappealed_and_no_prior_ai_verd
     direct_vm.value = 5 * 10**18
     contract.create_bounty(
         "Prove the docs contradiction", "The docs at X claim Y but the code does Z.",
-        "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter, ONE_HOUR, 0,
+        "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter, ONE_HOUR, 0, 5 * 10**6,
     )
     direct_vm.value = 0
 
@@ -1214,7 +1215,7 @@ def test_human_override_not_flagged_when_arbiter_agrees_with_ai_verdict(direct_v
     direct_vm.value = 5 * 10**18
     contract.create_bounty(
         "Prove the docs contradiction", "The docs at X claim Y but the code does Z.",
-        "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter, ONE_HOUR, 0,
+        "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter, ONE_HOUR, 0, 5 * 10**6,
     )
     direct_vm.value = 0
 

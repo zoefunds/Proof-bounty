@@ -78,6 +78,7 @@ model Attempt {
   appealedBy         String   @default("") @map("appealed_by")
   appealReason       String   @default("") @map("appeal_reason")
   appealBondDeposited String  @default("0") @map("appeal_bond_deposited")
+  appealBondRecipient String  @default("") @map("appeal_bond_recipient")
   createdAt          Int      @map("created_at")
   submittedAt        Int      @map("submitted_at")
   resolvedAt         Int      @map("resolved_at")

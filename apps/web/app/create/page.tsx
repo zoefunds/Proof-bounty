@@ -4,7 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@/lib/wallet-context";
 import { useContractWrite } from "@/lib/use-contract-write";
-import { toGenWei } from "@/lib/format";
+import { useContractRead } from "@/lib/use-contract-read";
+import { useBaseEscrow } from "@/lib/base-escrow";
+import { getContractAddress, getReadOnlyClient } from "@/lib/genlayer-client";
+import { toUsdcUnits } from "@/lib/format";
 import { VALID_CATEGORIES } from "@/lib/contract-config";
 import { Button } from "@/components/ui/Button";
 import { GlassInput, GlassTextarea, Label } from "@/components/ui/Card";
@@ -42,12 +45,20 @@ export default function CreateBountyPage() {
   const [arbiter, setArbiter] = useState("");
 
   const createTx = useContractWrite();
+  const { data: nextBountyId } = useContractRead<number>("get_bounty_counter");
+  const baseEscrow = useBaseEscrow();
+  const [fundingError, setFundingError] = useState<string | null>(null);
 
   const canProceedStep1 = title.trim().length > 0 && claimText.trim().length > 0;
   const canProceedStep2 = criteria.some((c) => c.trim().length > 0);
   const canProceedStep4 = Number(reward) > 0 && arbiter.trim().length > 0;
 
   async function handleCreate() {
+    if (!address) return;
+    if (nextBountyId == null) {
+      setFundingError("Could not read the next bounty id. Please retry.");
+      return;
+    }
     const proofCriteria = criteria
       .filter((c) => c.trim())
       .map((c, i) => `${i + 1}. ${c.trim()}`)
@@ -64,12 +75,32 @@ export default function CreateBountyPage() {
         evidenceRequirements.trim(),
         arbiter.trim(),
         deadlineSeconds,
-        toGenWei(bond || "0"),
+        toUsdcUnits(bond || "0"),
+        toUsdcUnits(reward),
       ],
-      value: toGenWei(reward),
     });
     if (ok) {
-      setStep(6); // success screen
+      try {
+        // Re-read the finalized state instead of assuming the preflight
+        // counter is still ours; concurrent creators may have raced it.
+        const rows = await getReadOnlyClient().readContract({
+          address: getContractAddress(), functionName: "list_bounties", args: [0, 200],
+        }) as unknown as Array<{ bounty_id: number; creator: string; title: string; reward_amount: string | number }>;
+        const created = rows
+          .filter((b) => b.creator.toLowerCase() === address.toLowerCase() && b.title === title.trim() && BigInt(b.reward_amount) === toUsdcUnits(reward))
+          .sort((a, b) => b.bounty_id - a.bounty_id)[0];
+        if (!created) throw new Error("The finalized GenLayer bounty could not be reconciled; no USDC was moved.");
+        await baseEscrow.approve();
+        await baseEscrow.fundBounty(
+          created.bounty_id,
+          toUsdcUnits(reward),
+          toUsdcUnits(bond || "0"),
+          Number(process.env.NEXT_PUBLIC_DEFAULT_FEE_BPS ?? 250)
+        );
+        setStep(6); // success screen
+      } catch (err) {
+        setFundingError(err instanceof Error ? err.message : String(err));
+      }
     }
   }
 
@@ -93,7 +124,7 @@ export default function CreateBountyPage() {
         <div className="glass-panel rounded-xl p-10 text-center max-w-md border-t-4 border-t-action-green">
           <h1 className="font-headline text-2xl text-on-surface mb-3">Bounty Created</h1>
           <p className="font-body text-sm text-on-surface-variant mb-6">
-            Your claim is now live and funded on-chain. Challengers can accept it and start
+            Your claim is live on GenLayer and funded with USDC on Base Sepolia. Challengers can accept it and start
             submitting evidence.
           </p>
           <Button onClick={() => router.push("/explore")}>View Marketplace</Button>
@@ -253,11 +284,11 @@ export default function CreateBountyPage() {
             <StepShell title="Stakes & Deadline" sub="Set the reward, optional performance bond, arbiter, and deadline.">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Reward (GEN)</Label>
+                  <Label>Reward (USDC on Base Sepolia)</Label>
                   <GlassInput type="number" min="0" step="0.01" value={reward} onChange={(e) => setReward(e.target.value)} placeholder="100" />
                 </div>
                 <div>
-                  <Label>Required Bond (GEN, 0 = none)</Label>
+                  <Label>Required Bond (USDC, 0 = none)</Label>
                   <GlassInput type="number" min="0" step="0.01" value={bond} onChange={(e) => setBond(e.target.value)} placeholder="0" />
                 </div>
               </div>
@@ -294,12 +325,13 @@ export default function CreateBountyPage() {
                 <ReviewRow label="Claim" value={claimText} />
                 <ReviewRow label="Type" value={`${polarity} · ${category.replace(/_/g, " ")}`} />
                 <ReviewRow label="Criteria" value={criteria.filter(Boolean).join(" / ")} />
-                <ReviewRow label="Reward" value={`${reward || 0} GEN`} />
-                <ReviewRow label="Bond" value={`${bond || 0} GEN`} />
+                <ReviewRow label="Reward" value={`${reward || 0} USDC`} />
+                <ReviewRow label="Bond" value={`${bond || 0} USDC`} />
                 <ReviewRow label="Arbiter" value={arbiter} />
                 <ReviewRow label="Deadline" value={`${Math.round(deadlineSeconds / 86400)} days from now`} />
               </div>
               <TxStateBanner state={createTx.state} txHash={createTx.txHash} errorMessage={createTx.errorMessage} />
+              {fundingError && <p className="text-sm text-status-rejected">Base funding failed: {fundingError}. The GenLayer record exists but is not funded; retry from the bounty page.</p>}
             </StepShell>
           )}
 

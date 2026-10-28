@@ -2,11 +2,16 @@
 
 import { useWallet } from "@/lib/wallet-context";
 import { CONTRACT_ADDRESS, GENLAYER_CHAIN, isContractConfigured } from "@/lib/contract-config";
+import { BASE_ESCROW_ADDRESS, BASE_USDC_ADDRESS } from "@/lib/contract-config";
+import { useBaseEscrow } from "@/lib/base-escrow";
+import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 
 export default function SettingsPage() {
   const { address, disconnect } = useWallet();
+  const baseEscrow = useBaseEscrow();
+  const [claimStatus, setClaimStatus] = useState<string | null>(null);
 
   return (
     <main className="flex-grow w-full px-4 md:px-16 max-w-[720px] mx-auto py-8">
@@ -28,6 +33,11 @@ export default function SettingsPage() {
             <Button variant="danger" onClick={disconnect} className="w-fit">
               Disconnect Wallet
             </Button>
+            <Button onClick={async () => {
+              try { await baseEscrow.claim(); setClaimStatus("USDC claimed successfully."); }
+              catch (err) { setClaimStatus(err instanceof Error ? err.message : String(err)); }
+            }} className="w-fit">Claim available USDC</Button>
+            {claimStatus && <p className="font-body text-xs text-on-surface-variant">{claimStatus}</p>}
           </div>
         ) : (
           <p className="font-body text-sm text-on-surface-variant">No wallet connected.</p>
@@ -46,6 +56,8 @@ export default function SettingsPage() {
             value={isContractConfigured() ? CONTRACT_ADDRESS : "Not configured"}
             mono
           />
+          <Row label="Base Sepolia escrow" value={BASE_ESCROW_ADDRESS || "Not configured"} mono />
+          <Row label="Base Sepolia USDC" value={BASE_USDC_ADDRESS} mono />
         </div>
       </Card>
     </main>

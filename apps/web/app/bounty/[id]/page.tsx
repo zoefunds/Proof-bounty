@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useContractRead } from "@/lib/use-contract-read";
 import { useContractWrite } from "@/lib/use-contract-write";
 import { useWallet } from "@/lib/wallet-context";
+import { useBaseEscrow } from "@/lib/base-escrow";
 import { useNow } from "@/lib/use-now";
 import { formatGen, formatDeadline, formatTimestamp, truncateAddress, isExpired } from "@/lib/format";
 import { canClaimBountyTimeout } from "@/lib/bounty-actions";
@@ -72,8 +73,8 @@ export default function BountyDetailPage() {
           <h1 className="font-headline text-3xl md:text-4xl text-on-surface mb-2 pr-24">{bounty.title}</h1>
           <p className="font-body text-lg text-on-surface-variant mb-6">{bounty.claim_text}</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8 border-t border-border-subtle pt-6">
-            <Stat label="Reward" value={`${formatGen(bounty.reward_amount)} GEN`} accent="action-green" />
-            <Stat label="Bond Required" value={`${formatGen(bounty.required_bond)} GEN`} accent="tertiary-fixed-dim" />
+            <Stat label="Reward" value={`${formatGen(bounty.reward_amount)} USDC`} accent="action-green" />
+            <Stat label="Bond Required" value={`${formatGen(bounty.required_bond)} USDC`} accent="tertiary-fixed-dim" />
             <Stat label="Deadline" value={formatTimestamp(bounty.deadline)} mono />
             <Stat label="Creator" value={truncateAddress(bounty.creator)} mono accentText="electric-blue" />
           </div>
@@ -207,15 +208,24 @@ function BountyActionPanel({
   const acceptTx = useContractWrite();
   const cancelTx = useContractWrite();
   const timeoutTx = useContractWrite();
+  const baseEscrow = useBaseEscrow();
+  const [baseError, setBaseError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
   async function handleAccept() {
     const ok = await acceptTx.write({
       functionName: "accept_bounty",
       args: [bounty.bounty_id],
-      value: BigInt(bounty.required_bond || 0),
     });
-    if (ok) onChanged();
+    if (ok) {
+      try {
+        await baseEscrow.approve();
+        await baseEscrow.fundAttempt(bounty.bounty_id, bounty.attempt_count);
+        onChanged();
+      } catch (err) {
+        setBaseError(err instanceof Error ? err.message : String(err));
+      }
+    }
   }
 
   async function handleCancel() {
@@ -237,7 +247,7 @@ function BountyActionPanel({
       {canAccept && (
         <>
           <p className="font-body text-sm text-on-surface-variant mb-2">
-            Lock {formatGen(bounty.required_bond)} GEN as your performance bond to accept this challenge.
+            Lock {formatGen(bounty.required_bond)} USDC on Base Sepolia as your performance bond to accept this challenge.
             If your evidence is rejected, the bond is forfeitable to the creator.
           </p>
           {!confirming ? (
@@ -245,7 +255,7 @@ function BountyActionPanel({
           ) : (
             <div className="flex flex-col gap-2">
               <p className="font-mono-data text-[11px] text-status-partial">
-                Confirm: lock exactly {formatGen(bounty.required_bond)} GEN?
+                Confirm: lock exactly {formatGen(bounty.required_bond)} USDC?
               </p>
               <div className="flex gap-2">
                 <Button onClick={handleAccept} isLoading={acceptTx.isBusy}>
@@ -258,6 +268,7 @@ function BountyActionPanel({
             </div>
           )}
           <TxStateBanner state={acceptTx.state} txHash={acceptTx.txHash} errorMessage={acceptTx.errorMessage} />
+          {baseError && <p className="font-body text-xs text-status-rejected">Base Sepolia funding failed: {baseError}</p>}
         </>
       )}
       {canCancel && (

@@ -1,5 +1,11 @@
 # Architecture
 
+> **Current payment boundary:** GenLayer adjudicates only; Base Sepolia
+> `ProofBountyEscrow` holds six-decimal USDC and executes EIP-712-authorized,
+> single-use decisions through pull claims. See
+> [`../MILESTONE-USDC.md`](../MILESTONE-USDC.md). GEN custody descriptions
+> later in this document are retained historical design notes.
+
 ## System overview
 
 ```
@@ -14,7 +20,7 @@
                  ▼                           ▼
      ┌───────────────────────┐   ┌────────────────────────┐
      │  GenLayer StudioNet    │   │  Fly.io (Fastify API)  │   apps/api
-     │  ProofBounty contract  │◄──┤  proofbounty-api.fly.dev│
+     │  ProofBounty contract  │◄──┤proofbounty-usdc-api.fly.dev│
      │  (source of truth)     │   │  polls contract, caches │
      └───────────┬─────────────┘   │  to Postgres,            │
                  │                 │  independently archives  │
@@ -26,7 +32,7 @@
         EVM wallet                             ▼
         (MetaMask-compatible)     ┌────────────────────────┐
                                    │  Fly Postgres           │
-                                   │  proofbounty-db          │
+                                   │proofbounty-usdc-db       │
                                    │  (cache, never source    │
                                    │   of truth)               │
                                    └────────────────────────┘

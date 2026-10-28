@@ -79,6 +79,7 @@ interface AttemptRow {
   appealed_by: string;
   appeal_reason: string;
   appeal_bond_deposited: number | string;
+  appeal_bond_recipient: string;
   created_at: number;
   submitted_at: number;
   resolved_at: number;
@@ -471,6 +472,7 @@ function mapAttempt(a: AttemptRow) {
     appealedBy: a.appealed_by,
     appealReason: a.appeal_reason,
     appealBondDeposited: String(a.appeal_bond_deposited),
+    appealBondRecipient: a.appeal_bond_recipient,
     createdAt: a.created_at,
     submittedAt: a.submitted_at,
     resolvedAt: a.resolved_at,

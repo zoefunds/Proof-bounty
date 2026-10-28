@@ -11,10 +11,12 @@ second look is `NEXT_PUBLIC_REOWN_PROJECT_ID`, covered below.
 
 | Variable | Purpose | Production value |
 |---|---|---|
-| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | The deployed contract address | `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` |
+| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | The deployed adjudication contract address | `0x8566beF0B3507415F29229a9D9A26BF41a9cA505` |
+| `NEXT_PUBLIC_BASE_ESCROW_ADDRESS` | Base Sepolia USDC escrow | `0x6DC21933ec3D013542185482850C96c753d10cfc` |
+| `NEXT_PUBLIC_BASE_USDC_ADDRESS` | Base Sepolia USDC token | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | `NEXT_PUBLIC_GENLAYER_NETWORK` | Which GenLayer chain to target | `studionet` |
 | `NEXT_PUBLIC_GENLAYER_RPC_URL` | RPC endpoint for direct contract reads/writes | `https://studio.genlayer.com/api` |
-| `NEXT_PUBLIC_API_URL` | Backend indexer/API base URL | `https://proofbounty-api.fly.dev` |
+| `NEXT_PUBLIC_API_URL` | Backend indexer/API base URL | `https://proofbounty-usdc-api.fly.dev` |
 | `NEXT_PUBLIC_REOWN_PROJECT_ID` | Reown (WalletConnect) project ID — powers the multi-wallet connect modal (`lib/reown-config.ts`) | `00a166f22ba09aef8f71d5c707ba0cdc` |
 
 **On `NEXT_PUBLIC_REOWN_PROJECT_ID`**: a Reown project ID is a public
@@ -37,7 +39,9 @@ done in this repo, pointing at production values by default).
 |---|---|---|---|
 | `DATABASE_URL` | Postgres connection string | Yes | Auto-set by `fly postgres attach` |
 | `PORT` | HTTP listen port | No | `8080` |
-| `PROOFBOUNTY_CONTRACT_ADDRESS` | Contract to index | No (but treated as a secret via `fly secrets` for convenience — no harm either way) | `0x9EAe7903e7489478C53a48Ab06D57d5aFb3eE3F1` |
+| `PROOFBOUNTY_CONTRACT_ADDRESS` | Contract to index | No | `0x8566beF0B3507415F29229a9D9A26BF41a9cA505` |
+| `BASE_RELAYER_PRIVATE_KEY` | Base relay transaction signer | **Yes** | Encrypted Fly secret |
+| `BASE_DECISION_SIGNER_PRIVATE_KEY` | Independent EIP-712 authorization signer | **Yes** | Encrypted Fly secret |
 | `GENLAYER_RPC_URL` | GenLayer RPC endpoint the indexer reads from | No | `https://studio.genlayer.com/api` |
 | `INDEXER_POLL_INTERVAL_MS` | How often the indexer polls the contract | No | `20000` |
 | `CORS_ORIGIN` | Allowed frontend origin | No | `https://proof-bounty.vercel.app` |

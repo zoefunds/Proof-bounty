@@ -47,6 +47,7 @@ export interface AttemptDetail {
   appealed_by: string;
   appeal_reason: string;
   appeal_bond_deposited: string | number;
+  appeal_bond_recipient: string;
   created_at: number;
   submitted_at: number;
   resolved_at: number;

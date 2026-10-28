@@ -3,6 +3,16 @@
 Persistent memory for continuing this build across sessions. Read this
 first before resuming work.
 
+## USDC milestone deployment — 2026-10-28 (current)
+
+This supersedes the legacy GEN-custody deployment narrative below. GenLayer
+is adjudication-only at `0x8566beF0B3507415F29229a9D9A26BF41a9cA505`.
+Base Sepolia holds USDC in escrow at
+`0x6DC21933ec3D013542185482850C96c753d10cfc`. The active backend is
+`https://proofbounty-usdc-api.fly.dev`, backed by `proofbounty-usdc-db`.
+The prior `proofbounty-api` app is abandoned. See `MILESTONE-USDC.md` for the
+authoritative architecture, roles, validation, and retired addresses.
+
 ## ⚠️ CURRENT DEPLOYMENT STATE (single source of truth — read this first)
 
 **A third-party audit (2026-08-26) flagged this file as ambiguous about

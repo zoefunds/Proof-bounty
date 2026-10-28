@@ -22,6 +22,11 @@ const envSchema = z.object({
   // 5000 requests per day" once the hourly fix let volume climb). Same
   // safety-margin pattern as the hourly limit.
   GENLAYER_RPC_RATE_LIMIT_PER_DAY: z.coerce.number().default(4800),
+  BASE_SEPOLIA_RPC_URL: z.string().url().default("https://sepolia.base.org"),
+  BASE_ESCROW_ADDRESS: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional(),
+  BASE_RELAYER_PRIVATE_KEY: z.string().regex(/^(0x)?[0-9a-fA-F]{64}$/).optional(),
+  BASE_DECISION_SIGNER_PRIVATE_KEY: z.string().regex(/^(0x)?[0-9a-fA-F]{64}$/).optional(),
+  BASE_RELAY_INTERVAL_MS: z.coerce.number().default(120_000),
 });
 
 export const env = envSchema.parse(process.env);

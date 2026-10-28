@@ -66,7 +66,7 @@ export default function ProfilePage() {
                 Total Earned
               </div>
               <div className="font-headline text-2xl text-action-green">
-                {formatGen(rep?.total_earned ?? 0)} GEN
+                {formatGen(rep?.total_earned ?? 0)} USDC
               </div>
             </Card>
             <Card className="p-6">
@@ -75,7 +75,7 @@ export default function ProfilePage() {
               </div>
               <div className="font-headline text-2xl text-on-surface">{rep?.bounties_created ?? 0}</div>
               <div className="font-body text-xs text-on-surface-variant mt-1">
-                {formatGen(rep?.bounties_funded_total ?? 0)} GEN funded total
+                {formatGen(rep?.bounties_funded_total ?? 0)} USDC funded total
               </div>
             </Card>
           </div>
