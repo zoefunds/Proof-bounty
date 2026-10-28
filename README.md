@@ -1,342 +1,129 @@
-# PROOFBOUNTY
+# ProofBounty
 
-> **USDC milestone (2026-10-28):** GenLayer is adjudication-only. Funds are
-> held as USDC by the Base Sepolia escrow. See [MILESTONE-USDC.md](MILESTONE-USDC.md)
-> for live addresses, the cross-chain lifecycle, verification evidence, and
-> the authoritative trust boundary. Older GEN references below are historical.
+ProofBounty is a marketplace for claims verified from public web evidence.
+GenLayer adjudicates evidence and disputes; Base Sepolia holds and settles
+six-decimal USDC. GenLayer never holds tokens.
 
-> **Cross-chain security:** unfunded reservations never consume attempt
-> capacity; Base funding is EIP-712-bound to the exact challenger and
-> reservation; delayed recovery requires no relay signature. Base still
-> relies on a disclosed off-chain attestor/decision signer because it cannot
-> natively verify GenLayer consensus. See
-> [`docs/CROSS_CHAIN_SECURITY.md`](docs/CROSS_CHAIN_SECURITY.md).
+## Production deployment
 
-> Put money behind a claim. Then let the internet prove whether you earned it.
-
-An onchain marketplace for verifiable public outcomes, built on [GenLayer](https://genlayer.com)
-Intelligent Contracts. A bounty creator locks a GEN reward against a
-precommitted, immutable set of proof criteria. Any number of challengers may
-race to submit evidence for the same bounty. The Intelligent Contract itself
-fetches that evidence live from the web and asks GenLayer's validator
-consensus to judge only the fetched content against the locked criteria —
-never a challenger's own account of what their evidence shows. The first
-challenger to receive a valid, favorable verdict wins the reward; every other
-concurrent challenger's bond is returned.
-
-## Why this needs GenLayer, not a plain LLM call or a centralized backend
-
-The creator and challenger have directly opposed financial incentives on
-the same question — whoever operates the judge has a standing reason to
-favor whichever side pays or controls them, and the decision moves real
-money irreversibly the moment it's made. A single company's API key
-behind an LLM call fails on both counts: whoever holds the key is the
-centralized judge, and whoever calls the API controls what "evidence" the
-model even sees. GenLayer's contribution here is specific and checkable,
-not decorative:
-
-- `gl.nondet.web.render` means **multiple independent validators each
-  fetch the disputed URL themselves** — no single party's claimed fetch
-  is ever taken on faith, unlike a backend that fetches once and reports
-  "I checked, it's fine."
-- `gl.eq_principle.prompt_comparative` means the payout only happens if
-  those independent judgments **agree** — see
-  `contracts/proof_bounty.py`'s "AVOIDING UNDETERMINED / LEADER-ROTATION
-  OUTCOMES" module-docstring section for exactly what has to match (and
-  what's deliberately exempted, like free-text reasoning) for that
-  agreement to be meaningful rather than a formatting accident.
-- The full trace — locked funds → frozen criteria → live GenVM fetch →
-  validator consensus → irreversible state transition — is written out
-  method-by-method in that same module docstring's "END-TO-END TRACE"
-  section, and every step of it is exercised by a real transaction in
-  `scripts/` and asserted on in `tests/integration/`.
-
-**The one deliberate exception, sharply bounded, always resolved by
-GenLayer itself, never by a human:** either party may dispute a verdict
-to the bounty's named arbiter. That ruling never moves money — full
-stop, not just "not immediately." Either party may appeal it early to a
-SECOND, independent round of GenLayer validator consensus
-(`resolve_appeal`, fully permissionless). But even if NOBODY appeals,
-the arbiter's ruling is still never executed as-is: once the appeal
-window closes, anyone may permissionlessly call
-`finalize_arbiter_resolution`, which runs that exact same second
-consensus round automatically (`_settle_via_second_consensus`, the
-shared engine both methods use) and settles on THAT fresh verdict — the
-arbiter's ruling is shown to the model only as context, in both cases.
-**No human — not the arbiter, not the protocol owner, not anyone — ever
-makes the final, binding call on a disputed payout in this contract, and
-that is now true unconditionally, not only when someone chooses to
-appeal.** This tier can **never** touch a reward AI consensus has
-already paid in the first place: `ATTEMPT_WON` is structurally excluded
-from `raise_dispute`'s live-state check, so there is no method on this
-contract that can reopen a completed AI-driven settlement. Every arbiter
-ruling still requires non-empty, on-chain written justification, and
-`get_settlement_transparency()` exposes `attempts_settled_by_human_override`
-— retained for API continuity, and structurally guaranteed to always
-read zero, since no code path can increment it anymore — alongside
-`attempts_settled_by_ai_consensus`, which every settled attempt now
-counts toward. See `contracts/proof_bounty.py`'s "ARBITER TRUST MODEL AND
-THE APPEAL PATH" section and
-[`docs/CONTRACT_REVIEW.md`](docs/CONTRACT_REVIEW.md) for the full
-mechanism and the exact code/tests that prove each part of it. A staked,
-multi-arbiter marketplace with slashing for the first-pass arbiter
-selection itself would push this further toward full decentralization;
-that is a materially larger protocol redesign, documented as an
-intentional scope boundary, not silently left unaddressed. What this
-contract does guarantee is that the arbiter is never a settlement
-authority at all, appealed or not — only ever advisory context for a
-mandatory GenLayer consensus check.
-
-See [`memory/MEMORY.md`](memory/MEMORY.md) for the full build history, every
-architecture decision, and every audit round this project has been through
-(read this first if you're picking the project back up after a break).
-
-## Status
-
-| Piece | State |
+| Component | Production value |
 |---|---|
-| Intelligent Contract (`contracts/proof_bounty.py`, 2,890 lines, 33 public methods) | ✅ Deployed live on StudioNet, deployed bytecode confirmed matching source via `genlayer code` |
-| Frontend (`apps/web`, Next.js 15 App Router) | ✅ Deployed — [proof-bounty.vercel.app](https://proof-bounty.vercel.app) |
-| Backend indexer/API + Base relay (`apps/api`, Fastify + Postgres) | ✅ Deployed — [proofbounty-usdc-api.fly.dev](https://proofbounty-usdc-api.fly.dev) |
-| Automated test suite (`tests/integration/`, pytest/`gltest`) | ✅ 37 tests — 35 pass deterministically offline, 2 depend on live web fetch + LLM output (`request_verification` full lifecycle, and `resolve_appeal`'s GenLayer-consensus resolution) |
-| Manual live-chain verification scripts (`scripts/`) | ✅ 15 scripts (`00`–`14`) — `00`–`13` all run against live StudioNet with realistic content, `14` is an offline logic regression check (no network) |
-| CI (`.github/workflows/ci.yml`) | ✅ Contract lint, offline test subset, frontend/backend lint+typecheck+build, dependency audit on every push |
-| Notifications | ✅ Built — per-recipient, polling-based (not push/email/webhook) |
-| Independent off-chain evidence archive | ✅ Built — real SHA-256, SSRF-hardened, cross-checked against the on-chain fingerprint |
-| Arbiter/appeal override transparency | ✅ Built — `get_settlement_transparency()`; bounded structurally (can never touch an already-paid AI settlement) |
-| End-to-end test with a real, unmanaged browser wallet (MetaMask etc.) | ✅ Manually verified by the project owner against the live frontend — wallet connect, contract calls, and on-chain tx status updates all confirmed working |
+| Frontend | <https://proof-bounty.vercel.app> |
+| API, indexer, and relay | <https://proofbounty-usdc-api.fly.dev> |
+| GenLayer StudioNet adjudication | `0x9482012290132518c88D967623A15C3DDD0d247E` |
+| Base Sepolia escrow | `0xA99384bc4e6c045bBFD239Bbc9297a5C144AF711` |
+| Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
+| Base chain ID | `84532` |
 
-**Live contracts:** GenLayer adjudication `0x9482012290132518c88D967623A15C3DDD0d247E`; Base Sepolia USDC escrow `0xA99384bc4e6c045bBFD239Bbc9297a5C144AF711`. See [`MILESTONE-USDC.md`](MILESTONE-USDC.md).
+The deployed GenLayer source matches `contracts/proof_bounty.py` byte-for-byte.
+Deployment transactions, live roles, and verification results are recorded in
+[docs/VERIFICATION.md](docs/VERIFICATION.md).
 
-## How it works
+## Protocol lifecycle
 
-1. **Create a bounty.** A creator declares immutable USDC terms on GenLayer,
-   then deposits the exact reward into the Base Sepolia escrow against a
-   title, a claim, a claim polarity (`POSITIVE`/`NEGATIVE` — you can bounty
-   either "prove X happened" or "prove X did NOT happen"), a category (one
-   of `SECURITY`, `GOVERNANCE`, `OPEN_SOURCE`, `DOCUMENTATION`,
-   `PROTOCOL_RESEARCH`, `ONCHAIN_ANALYSIS`, `PRODUCT_CLAIMS`,
-   `PUBLIC_ACCOUNTABILITY`, `OTHER`), a precommitted set of proof criteria,
-   a description of acceptable evidence, an arbiter address (may be the
-   creator themself), a deadline, and an optional required challenger bond.
-2. **Challengers reserve, fund, then activate.** `reserve_attempt` creates an
-   expiring identity reservation that consumes no attempt capacity. Base
-   funding requires a short-lived authorization bound to that challenger and
-   reservation. Only after funding is attested does GenLayer create the final
-   `Attempt` and lock criteria. Up to `MAX_ATTEMPTS_PER_BOUNTY` (40) funded
-   attempts are allowed per bounty — a deliberate cap that
-   bounds the cost of the settlement-time "mark every other attempt
-   LOST_RACE" loop, closing a settlement-availability DoS vector.
-3. **A challenger submits an evidence URL** (`submit_evidence`) and
-   triggers verification (`request_verification`, permissionless — anyone
-   can call it once evidence is submitted, so a stalled attempt is never
-   stuck waiting on the challenger specifically).
-4. **The contract fetches the URL itself**, live, inside GenVM's
-   non-deterministic execution (`gl.nondet.web.render(url, mode="text")`),
-   and asks an LLM to judge the FETCHED CONTENT — never the challenger's
-   own description — against the immutable criteria, using
-   `gl.eq_principle.prompt_comparative` so every validator's independent
-   fetch-and-judge run must converge to the same verdict for consensus.
-5. **One of five verdicts comes back:**
-   - `APPROVED` — full reward to this attempt, every other live attempt on
-     the bounty flips to `LOST_RACE` (bonds independently reclaimable).
-   - `PARTIAL` — a bucketed percentage of the reward (rounded onto a
-     discrete 500-basis-point grid *before* being compared for consensus,
-     so "close enough" and "identical" collapse into the same value —
-     see `PAYOUT_BUCKET_BPS`'s docstring for why this is what makes an
-     exact-match equivalence principle safe here).
-   - `REJECTED` — the evidence unambiguously fails the criteria; after any
-     dispute window, the bond becomes forfeitable to the creator.
-   - `NEEDS_REVISION` — a fixable, technical submission problem (dead
-     link, empty page, wrong page); the challenger gets another
-     resubmission cycle (`max_revisions`, default 3).
-   - `INSUFFICIENT_EVIDENCE` — the fetched content is real, readable, and
-     on-topic, but doesn't itself confirm or contradict the criteria.
-     Distinct in consequence from `REJECTED`: exhausting the resubmission
-     cycle on this verdict **refunds** the bond instead of forfeiting it,
-     since "the evidence never settled the question" isn't the
-     challenger's fault the way a demonstrably-wrong submission is.
-6. **Either party may dispute** a verdict before it becomes final
-   (`raise_dispute`). The bounty's named arbiter reviews and rules
-   (`resolve_dispute`) — but that ruling does **not** move money at all,
-   ever. It opens a 2-day appeal window
-   (`ARBITER_RESOLVED_PENDING_APPEAL`).
-7. **Either party may appeal early** by posting a bond equal to the
-   original challenger bond (`appeal_arbiter_resolution`), escalating to
-   `APPEALED`. If nobody appeals, anyone may permissionlessly call
-   `finalize_arbiter_resolution` once the window closes instead — which
-   does **not** just execute the arbiter's ruling.
-8. **Either way, a second, independent round of GenLayer validator
-   consensus makes the final call** (`resolve_appeal` for an explicit
-   appeal, or `finalize_arbiter_resolution` automatically once the window
-   closes — both run the same shared engine,
-   `_settle_via_second_consensus`) — the contract's second and last
-   resolution tier, and never a human one. It re-fetches the live
-   evidence itself and reaches its own verdict, shown the arbiter's
-   ruling and reasoning only as context, never as something it's bound
-   by. An appeal bond, if one was posted, is returned to whichever side
-   this fresh consensus's conclusion actually vindicates (computed
-   automatically from whether its verdict/payout differs from the
-   arbiter's pending one — never a human declaring "uphold/overturn"
-   themselves).
+1. A creator records the claim, criteria, deadline, reward, bond, fee, and
+   arbiter on GenLayer.
+2. The creator deposits the exact USDC reward into `ProofBountyEscrow` on Base.
+   The relay registers it only when Base and GenLayer terms match.
+3. A challenger calls `reserve_attempt`. The two-hour reservation does not
+   consume the 40 funded-attempt limit.
+4. The backend reads the finalized reservation and issues a short-lived
+   EIP-712 authorization bound to the exact challenger and funding terms.
+5. After Base funding, the backend verifies the receipt and event. The
+   dedicated GenLayer funding attestor activates the reservation, and the Base
+   relay binds the finalized attempt index.
+6. GenLayer validators independently retrieve and judge the submitted page
+   against the immutable criteria.
+7. Disputes receive an advisory arbiter ruling followed by a second GenLayer
+   consensus round. A human ruling is never the final settlement authority.
+8. The relay re-reads finalized state and submits a nonce- and time-bound
+   EIP-712 settlement. Base credits `claimable`; recipients call `claim()`.
 
-Every settlement path — direct AI verdict, the safe default refund when
-an arbiter goes silent (`force_default_resolution`), or either exit from
-a disputed attempt (appealed or the window simply closing, both GenLayer-
-consensus-decided) — runs through the same two shared primitives
-(`_settle_reward_to_winner`, `_forfeit_attempt_bond`,
-`_refund_attempt_bond`), each following a strict **read the ledger, zero
-it, persist the new status, only then transfer GEN** order, so no code path
-can double-pay or leave an attempt in a state where it owes money nobody
-can reach.
+Verdicts are `APPROVED`, `PARTIAL`, `REJECTED`, `NEEDS_REVISION`, and
+`INSUFFICIENT_EVIDENCE`. The first favorable funded attempt wins; other live
+attempts become `LOST_RACE` and can recover their bonds.
 
-## Evidence provenance
+## Security boundary
 
-Two independent, complementary layers, because neither one alone can fully
-solve "prove what was actually judged":
+- Base cannot natively verify GenLayer consensus. The testnet relay and
+  decision signer are distinct identities but run on the same Fly service.
+  Compromise of that host can authorize a false settlement. This is disclosed
+  testnet trust, not a trustless bridge.
+- Funding authorizations prevent another wallet from occupying a challenger's
+  reservation, and unfunded reservations never consume attempt capacity.
+- Settlements bind every economic field, a canonical GenLayer state hash, a
+  strictly increasing nonce, and a ten-minute validity window.
+- Replay, stale/conflicting nonces, expiry, tampering, wrong callers/signers,
+  and challenger mismatches revert.
+- Creator orphan recovery is signature-free after seven days. Challenger
+  unbound-funding recovery is signature-free after authorization expiry plus
+  24 hours.
+- Settlement uses pull claims and a reentrancy guard.
 
-- **On-chain evidence manifest.** Every verification run computes a
-  64-bit FNV-1a fingerprint (`_content_digest`) of the exact, truncated
-  page text every validator fetched and judged, and stores it on the
-  `Attempt` (`evidence_content_hash`). It's deliberately *not*
-  cryptographically strong — see that function's docstring — because its
-  job is fast, deterministic, consensus-safe drift detection, not
-  tamper-proofing. It's hand-rolled in pure Python (no `hashlib` import)
-  specifically because an earlier version of this contract shipped an
-  API call (`gl.get_balance`) that looked standard but didn't exist on the
-  pinned GenVM runner — a lesson in never assuming a stdlib import works
-  inside GenVM's constrained sandbox without verifying it first.
-- **Independent off-chain archive.** The backend indexer detects every
-  evidence submission and verification event and, server-side (with zero
-  of the contract's sandbox uncertainty), independently re-fetches the
-  same URL, computes a real cryptographic SHA-256 over the actual content,
-  and stores it in Postgres — `apps/api/src/services/evidence-archiver.ts`.
-  This archive also computes its own FNV-1a digest with the exact same
-  algorithm as the contract and compares it against the on-chain
-  fingerprint, recording whether they match. A mismatch is **expected**
-  for markup-heavy pages (the contract's fetch strips HTML down to plain
-  text; the archive stores the raw HTTP body) and is not itself evidence
-  of tampering — the point is making that gap *observable*, in the UI and
-  via the API, rather than silently assumed away. The frontend surfaces
-  this directly on every attempt with evidence (`AttemptCard`'s
-  "Independent off-chain archive" panel).
+See [docs/CROSS_CHAIN_SECURITY.md](docs/CROSS_CHAIN_SECURITY.md) for the full
+trust and recovery model.
 
-**What this does not do:** there is no IPFS/Arweave pinning of evidence
-(no decentralized archival infrastructure is configured for this project),
-no multi-source evidence corroboration, and no way to literally recover
-the exact bytes each individual validator's non-deterministic web fetch
-saw (GenVM doesn't expose that). These are documented, intentional scope
-boundaries, not oversights — see the contract's `EVIDENCE MANIFEST` module
-docstring section.
+## Repository
 
-## Escrow safety
-
-- **GenLayer never holds tokens.** All write methods are non-payable; Base
-  Sepolia `ProofBountyEscrow` is the sole USDC custodian.
-- **Identity-bound funding.** EIP-712 authorizations bind bounty,
-  reservation, challenger, exact bond, GenLayer contract, Base chain,
-  escrow, and expiry. Another wallet cannot squat the reservation.
-- **Pull claims and checks-effects-interactions.** Settlement credits a
-  claimable ledger exactly once; recipients withdraw with `claim()` under a
-  reentrancy guard.
-- **Fresh settlement authorization.** Canonical GenLayer state hashes,
-  monotonic per-bounty nonces, short validity windows, recipient constraints,
-  and single-use decisions reject stale, conflicting, unauthorized, or
-  replayed instructions.
-- **Signature-free delayed recovery.** Creators recover unregistered bounty
-  deposits after seven days; challengers recover unbound attempt deposits
-  after authorization expiry plus 24 hours.
-- **Zero-bond bounties are first-class.** A bounty's `required_bond` may
-  legitimately be `0`. Every terminal-state transition (`_refund_attempt_bond`,
-  `_forfeit_attempt_bond`, `reclaim_bond_after_settlement`) is written to
-  reach its terminal status *regardless* of whether there's actually a
-  nonzero balance to transfer — an earlier version of this contract
-  unconditionally reverted on a zero balance, which meant a zero-bond
-  attempt's STATE (never funds, since none were owed) could get stranded
-  forever with no way to reach LOST_RACE/BOND_FORFEITED.
-- **The settlement-loop DoS fix.** `_mark_other_attempts_lost_race` runs
-  once, every time a bounty settles, over every attempt that bounty has
-  ever accumulated. `MAX_ATTEMPTS_PER_BOUNTY = 40` bounds that loop's cost
-  so it can never grow large enough to make the *winning* challenger's own
-  settlement transaction exceed practical execution limits — see that
-  constant's docstring for the full reasoning.
-
-## Repo layout
-
-```
-contracts/                The single production Intelligent Contract (proof_bounty.py)
-tests/integration/        pytest/gltest integration tests — 33 deterministic + 1 LLM-dependent
-scripts/                  Manual live-StudioNet verification scripts (00-13), realistic content
-apps/web/                 Next.js frontend (deployed to Vercel)
-apps/api/                 Backend indexer + REST API + evidence archiver (deployed to Fly.io)
-memory/MEMORY.md          Persistent cross-session project memory — read first
-docs/                     ARCHITECTURE.md, SECURITY.md, DEPLOYMENT.md, ENVIRONMENT.md, CONTRIBUTING.md
+```text
+contracts/proof_bounty.py       GenLayer adjudication contract
+contracts/base/                 Base USDC escrow and Foundry tests
+apps/web/                       Next.js 16 / React 19 frontend
+apps/api/                       Fastify API, indexer, attestor, and Base relay
+tests/integration/              39 GenLayer tests
+scripts/00-reviewer-verify.mjs  Read-only deployed-source/state verification
+docs/                           Architecture, security, deployment, operations
+memory/MEMORY.md                Historical log; not an operations guide
 ```
 
-## Quickstart
+Numbered scripts after `00` are retained historical adjudication traces from
+before the USDC reservation milestone. They are not the current cross-chain
+runbook.
 
-### Contract
+## Verification
 
 ```bash
-cd contracts
-genvm-lint check proof_bounty.py --json      # lint + schema validation (33 methods, 19 write / 14 view)
-genvm-lint schema proof_bounty.py             # print the full ABI
+forge test -vv
+genvm-lint check contracts/proof_bounty.py --json
+gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
+(cd apps/api && npm ci && npx tsc --noEmit && npx prisma generate && npm run build)
+(cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
 ```
 
-To verify the live deployment matches this source, and see the current
-settlement-transparency numbers, in one command (read-only, no wallet
-needed):
+Current results: Foundry 8/8, selected deterministic GenLayer direct tests
+4/4, backend build passing, and frontend production build passing. GitHub
+Actions contains these jobs, but GitHub currently refuses to start runners
+because the repository owner's account is billing-locked.
 
-```bash
-cd scripts && node 00-reviewer-verify.mjs
-```
-
-Deployment target is GenLayer Studio / StudioNet. **The contract is deployed
-manually by the project owner, never by an agent or automated tooling** —
-see `memory/MEMORY.md`'s standing rule and deployment-state table.
-
-### Running the test suite
-
-```bash
-cd tests/integration  # or run from repo root with the path below
-gltest tests/integration -v -s -m "not llm" --network studionet --chain-type studionet
-```
-
-This runs all 33 deterministic tests for real against live StudioNet
-(no `gltest.config.yaml` exists in this repo, so the network must be passed
-explicitly or the CLI silently defaults to `localnet`). One test
-(`test_zero_bond_reclaim_after_settlement_is_a_safe_noop`) uses
-`gltest.direct`'s native, offline Python test runner with a time-warp
-cheatcode instead of live StudioNet, since it needs to advance past a
-2-day appeal window — not practical to wait out against a real network.
-Drop `-m "not llm"` to include `test_request_verification_full_lifecycle`,
-which depends on live, non-deterministic LLM output and isn't
-assertion-stable run to run.
-
-### Frontend
+## Local development
 
 ```bash
 cd apps/web
-npm install
-npm run dev          # http://localhost:3000
+cp .env.example .env.local
+npm ci
+npm run dev
 ```
-
-### Backend
 
 ```bash
 cd apps/api
-cp .env.example .env  # fill in DATABASE_URL, GENLAYER_RPC_URL, etc — see docs/ENVIRONMENT.md
-docker compose up -d   # local Postgres on :5443
+cp .env.example .env
+docker compose up -d
+npm ci
 npx prisma migrate dev
-npm run dev            # http://localhost:8080
+npm run dev
 ```
+
+Never put production private keys in a committed file. Use distinct local
+development keys for relay, decision signing, and funding attestation.
 
 ## Documentation
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design, data flow, why each piece exists
-- [`docs/SECURITY.md`](docs/SECURITY.md) — threat model, escrow safety, SSRF/evidence handling, rate limiting
-- [`docs/CONTRACT_REVIEW.md`](docs/CONTRACT_REVIEW.md) — every major contract invariant mapped to exact code and exact test
-- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — how everything got deployed and how to redeploy
-- [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) — every environment variable, what it does, where it's set
-- [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) — local dev workflow, testing, code style
-- [`memory/MEMORY.md`](memory/MEMORY.md) — full build history, every architecture decision, every audit round
+- [USDC milestone](MILESTONE-USDC.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Cross-chain security](docs/CROSS_CHAIN_SECURITY.md)
+- [Security operations](docs/SECURITY.md)
+- [Deployment](docs/DEPLOYMENT.md)
+- [Environment variables](docs/ENVIRONMENT.md)
+- [Verification record](docs/VERIFICATION.md)
+- [Contract invariant review](docs/CONTRACT_REVIEW.md)
+- [Contributing](docs/CONTRIBUTING.md)

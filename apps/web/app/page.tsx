@@ -7,14 +7,14 @@ const LIFECYCLE_STEPS = [
     number: "01 & 02",
     icon: "add_box",
     title: "Create & Lock",
-    body: "Define the exact parameters of your claim and precommitted proof criteria. Lock a GEN reward in an immutable escrow contract that can only be released upon cryptographic verification.",
+    body: "Define the claim and precommitted proof criteria on GenLayer, then fund the matching reward with USDC in the Base Sepolia escrow.",
     span: "md:col-span-2",
   },
   {
     number: "03",
     icon: "search",
     title: "Prove",
-    body: "Challengers submit evidence — on-chain transactions, APIs, or public documents — that they believe satisfies the criteria, locking a performance bond to attempt it.",
+    body: "Challengers reserve on GenLayer, fund an identity-bound USDC performance bond on Base Sepolia, and submit public evidence.",
     span: "md:col-span-1",
   },
   {
@@ -28,7 +28,7 @@ const LIFECYCLE_STEPS = [
     number: "05",
     icon: "payments",
     title: "Settle",
-    body: "Once consensus is reached, the contract automatically routes the locked reward directly to the successful challenger's wallet — full, partial, or refunded.",
+    body: "A nonce- and time-bound relay instruction reconciles finalized GenLayer state on Base. Recipients then claim full, partial, refunded, or forfeited USDC.",
     span: "md:col-span-2",
   },
 ];
@@ -82,7 +82,7 @@ export default function LandingPage() {
           <h2 className="font-headline text-2xl font-semibold text-on-surface mb-2">
             The Verification Lifecycle
           </h2>
-          <p className="font-body text-on-surface-variant">From claim to settlement without intermediaries.</p>
+          <p className="font-body text-on-surface-variant">From GenLayer adjudication to authorized Base USDC settlement.</p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {LIFECYCLE_STEPS.map((step) => (

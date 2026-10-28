@@ -1,76 +1,59 @@
 # Environment variables
 
-## `apps/web` (Next.js frontend)
+## Frontend (`apps/web`)
 
-All frontend env vars are `NEXT_PUBLIC_*` — they are bundled into the
-client-side JavaScript and visible to anyone visiting the site. None of
-them are secrets in the traditional sense (no server-side private keys,
-no API keys the frontend needs to protect) because it never signs
-anything itself — the connected wallet does. The one entry worth a
-second look is `NEXT_PUBLIC_REOWN_PROJECT_ID`, covered below.
+All frontend variables are public and bundled into browser JavaScript.
 
-| Variable | Purpose | Production value |
-|---|---|---|
-| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | The deployed adjudication contract address | `0x9482012290132518c88D967623A15C3DDD0d247E` |
-| `NEXT_PUBLIC_BASE_ESCROW_ADDRESS` | Base Sepolia USDC escrow | `0xA99384bc4e6c045bBFD239Bbc9297a5C144AF711` |
-| `NEXT_PUBLIC_BASE_USDC_ADDRESS` | Base Sepolia USDC token | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
-| `NEXT_PUBLIC_GENLAYER_NETWORK` | Which GenLayer chain to target | `studionet` |
-| `NEXT_PUBLIC_GENLAYER_RPC_URL` | RPC endpoint for direct contract reads/writes | `https://studio.genlayer.com/api` |
-| `NEXT_PUBLIC_API_URL` | Backend indexer/API base URL | `https://proofbounty-usdc-api.fly.dev` |
-| `NEXT_PUBLIC_REOWN_PROJECT_ID` | Reown (WalletConnect) project ID — powers the multi-wallet connect modal (`lib/reown-config.ts`) | `00a166f22ba09aef8f71d5c707ba0cdc` |
+| Variable | Production value / purpose |
+|---|---|
+| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | `0x9482012290132518c88D967623A15C3DDD0d247E` |
+| `NEXT_PUBLIC_BASE_ESCROW_ADDRESS` | `0xA99384bc4e6c045bBFD239Bbc9297a5C144AF711` |
+| `NEXT_PUBLIC_BASE_USDC_ADDRESS` | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
+| `NEXT_PUBLIC_GENLAYER_NETWORK` | `studionet` |
+| `NEXT_PUBLIC_GENLAYER_RPC_URL` | `https://studio.genlayer.com/api` |
+| `NEXT_PUBLIC_API_URL` | `https://proofbounty-usdc-api.fly.dev` |
+| `NEXT_PUBLIC_REOWN_PROJECT_ID` | Public Reown project identifier |
+| `NEXT_PUBLIC_DEFAULT_FEE_BPS` | Default displayed/created fee, currently `250` |
 
-**On `NEXT_PUBLIC_REOWN_PROJECT_ID`**: a Reown project ID is a public
-identifier, not a secret — it scopes usage/analytics on Reown's Cloud
-dashboard and is meant to be embedded in client-side code (every dApp
-using WalletConnect ships one in its bundle the same way). It grants no
-access to funds, wallets, or the contract; it cannot be used to sign
-anything or impersonate the app. Still tracked here rather than treated
-as a throwaway value because rotating it means updating both this env var
-and the `metadata.url`/`metadata.icons` fields in `lib/reown-config.ts`
-to keep matching what's registered on Reown Cloud, or wallet apps may
-show an "unverified app" warning during connect.
+The Reown project ID is intentionally public but should still match the
+registered production domain metadata.
 
-Local dev: copy `apps/web/.env.example` to `apps/web/.env.local` (already
-done in this repo, pointing at production values by default).
+## API (`apps/api`)
 
-## `apps/api` (Fastify backend)
+| Variable | Required | Secret | Purpose / production value |
+|---|---:|---:|---|
+| `DATABASE_URL` | yes | yes | Fly Postgres connection |
+| `PORT` | yes | no | `8080` |
+| `NODE_ENV` | yes | no | `production` |
+| `PROOFBOUNTY_CONTRACT_ADDRESS` | yes | no | Current GenLayer contract |
+| `GENLAYER_RPC_URL` | yes | no | `https://studio.genlayer.com/api` |
+| `CORS_ORIGIN` | yes | no | `https://proof-bounty.vercel.app` |
+| `INDEXER_POLL_INTERVAL_MS` | no | no | `20000` in production |
+| `REDIS_URL` | no | yes | Shared GenLayer RPC pacing store |
+| `GENLAYER_RPC_RATE_LIMIT_PER_MINUTE` | no | no | `30` |
+| `GENLAYER_RPC_RATE_LIMIT_PER_HOUR` | no | no | `480` |
+| `GENLAYER_RPC_RATE_LIMIT_PER_DAY` | no | no | `4800` |
+| `BASE_SEPOLIA_RPC_URL` | no | no | `https://sepolia.base.org` |
+| `BASE_ESCROW_ADDRESS` | no | no | Current Base escrow |
+| `BASE_RELAY_INTERVAL_MS` | no | no | `120000` |
+| `BASE_RELAYER_PRIVATE_KEY` | for relay | yes | Sends Base transactions |
+| `BASE_DECISION_SIGNER_PRIVATE_KEY` | for relay | yes | Signs EIP-712 authorizations |
+| `GENLAYER_FUNDING_ATTESTOR_PRIVATE_KEY` | for funding | yes | Activates verified reservations |
 
-| Variable | Purpose | Secret? | Production value / source |
-|---|---|---|---|
-| `DATABASE_URL` | Postgres connection string | Yes | Auto-set by `fly postgres attach` |
-| `PORT` | HTTP listen port | No | `8080` |
-| `PROOFBOUNTY_CONTRACT_ADDRESS` | Contract to index | No | `0x9482012290132518c88D967623A15C3DDD0d247E` |
-| `BASE_RELAYER_PRIVATE_KEY` | Base relay transaction signer | **Yes** | Encrypted Fly secret |
-| `BASE_DECISION_SIGNER_PRIVATE_KEY` | Independent EIP-712 authorization signer | **Yes** | Encrypted Fly secret |
-| `GENLAYER_RPC_URL` | GenLayer RPC endpoint the indexer reads from | No | `https://studio.genlayer.com/api` |
-| `INDEXER_POLL_INTERVAL_MS` | How often the indexer polls the contract | No | `20000` |
-| `CORS_ORIGIN` | Allowed frontend origin | No | `https://proof-bounty.vercel.app` |
-| `NODE_ENV` | `development` \| `production` \| `test` | No | `production` |
-| `REDIS_URL` | Upstash Redis, paces outbound GenLayer RPC calls to both the per-minute and per-hour caps | **Yes** | Set via `fly secrets set`, never committed |
-| `GENLAYER_RPC_RATE_LIMIT_PER_MINUTE` | The per-minute RPC budget the rate limiter paces against | No | `30` |
-| `GENLAYER_RPC_RATE_LIMIT_PER_HOUR` | The per-hour RPC budget — StudioNet enforces a separate, stricter 500/hour cap discovered live in production; this defaults to `480` as a safety margin under it | No | `480` |
-| `GENLAYER_RPC_RATE_LIMIT_PER_DAY` | The per-day RPC budget — StudioNet also enforces a 5,000/day cap, discovered live the same way as the hourly one; this defaults to `4800` as a safety margin under it | No | `4800` |
+The three service private keys must be distinct. Empty relay-related values may
+be used for a read-only local indexer, but production cross-chain funding and
+settlement require all three.
 
-`REDIS_URL` is the one genuinely sensitive value here (it's a live
-credential with write access to a shared Redis instance). It is:
-- **never** in `.env.example` (only a placeholder pattern is shown there)
-- in `.env` locally, which is gitignored (`apps/api/.gitignore` was
-  created before anything else touched this repo, specifically to prevent
-  this)
-- set as a **Fly secret** in production (`fly secrets set REDIS_URL=...`),
-  never in `fly.toml`'s plaintext `[env]` block
+## Storage rules
 
-Local dev: `cp apps/api/.env.example apps/api/.env`, then fill in your own
-`REDIS_URL` (a free Upstash Redis instance works fine) and adjust
-`DATABASE_URL` if you're not using the provided `docker-compose.yml`.
+- Commit placeholders only in `.env.example`.
+- Keep local `.env` and `.env.local` files ignored.
+- Store production private values with `fly secrets set`; never put them in
+  `fly.toml`.
+- Public addresses and intervals belong in `fly.toml` or Vercel environment
+  configuration.
+- Rotate any value that appears in logs or chat, even on testnet.
 
-## Validation
-
-Both apps validate their environment at startup and fail fast with a
-clear error if something required is missing:
-- Frontend: `lib/contract-config.ts` — `isContractConfigured()` gates
-  every page that needs the contract address, rendering an explicit
-  "not configured" state instead of a silent failure.
-- Backend: `src/lib/env.ts` — a `zod` schema (`envSchema.parse(process.env)`)
-  throws immediately on boot if a required variable is missing or
-  malformed, rather than failing confusingly later at first use.
+Both applications validate required configuration at startup. Frontend
+contract configuration is checked in `lib/contract-config.ts`; API validation
+is in `src/lib/env.ts`.

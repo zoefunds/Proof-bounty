@@ -1,116 +1,62 @@
 # Contributing
 
-## Project structure
+## Required checks
 
-This is a monorepo with three independently-deployable pieces:
+Contract and escrow:
 
-- `contracts/` — the Intelligent Contract (Python, GenVM)
-- `apps/web/` — Next.js frontend
-- `apps/api/` — Fastify backend/indexer
+```bash
+genvm-lint check contracts/proof_bounty.py --json
+gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
+forge test -vv
+```
 
-There is no shared build tooling across them (no Turborepo/Nx) — each has
-its own `package.json` and is deployed independently. Keep it that way
-unless the coordination overhead of a monorepo tool actually earns its
-keep.
+Applications:
+
+```bash
+(cd apps/api && npm ci && npx tsc --noEmit && npx prisma generate && npm run build)
+(cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
+```
+
+Some local environments prevent the Next.js Turbopack worker from binding a
+local port. `npx next build --webpack` is an acceptable local fallback, but the
+Vercel Turbopack production build remains the deployment gate.
 
 ## Contract changes
 
-1. Edit `contracts/proof_bounty.py`.
-2. `genvm-lint check contracts/proof_bounty.py --json` — must show
-   `"ok": true` for both `lint` and `validate`. This is what catches
-   schema-loading regressions before they ever reach a deployment.
-3. Run the integration suite. **This repo has no `gltest.config.yaml`**,
-   so the network must always be passed explicitly or the CLI silently
-   defaults to `localnet` (which isn't configured/running here):
-   ```bash
-   gltest tests/integration -v -s -m "not llm" --network studionet --chain-type studionet
-   ```
-   Tests marked `@pytest.mark.llm` need real web fetch + live LLM
-   consensus, are slower, and aren't assertion-stable run to run — include
-   them (drop `-m "not llm"`) only when you specifically want to exercise
-   that path. One test uses `gltest.direct` (a native, offline Python
-   runner with Foundry-style cheatcodes — `direct_vm`/`direct_deploy`/
-   `direct_accounts` fixtures) instead of live StudioNet, for a scenario
-   that needs to advance past a real-time window (a 2-day appeal window)
-   that isn't practical to wait out live — see that test's docstring in
-   `test_proof_bounty.py` for the exact pattern (patching
-   `gl.message_raw["datetime"]` directly, since `VMContext.warp()` alone
-   does not reach this contract's `_now()`; verify any such cheatcode
-   assumption empirically with a throwaway probe before relying on it,
-   the same discipline this project applies to every other unverified
-   GenVM API assumption).
-4. Redeploy manually via GenLayer Studio/CLI (contracts are never
-   deployed by an agent in this project — see `memory/MEMORY.md`).
-5. Update the address everywhere it's configured (see
-   `docs/DEPLOYMENT.md`'s redeploy checklist) and clear the cached
-   database of the retired contract's data before running any new tests
-   against the fresh one — stale cross-contract bounty ids in the cache
-   or in test assumptions are a real, previously-hit failure mode.
+- GenLayer must remain non-payable. Economic values are declared six-decimal
+  USDC terms; tokens never move through GenLayer.
+- Never create a capped attempt before verified Base funding. Pending demand
+  belongs in `AttemptReservation` storage.
+- Preserve permissionless reservation expiry and signature-free Base recovery.
+- Any Base escrow change needs focused Foundry coverage for caller identity,
+  EIP-712 field binding, replay/conflict behavior, conservation, and recovery.
+- After GenLayer deployment, compare `genlayer code <address>` with the local
+  source before changing production configuration.
 
 ## Frontend changes
 
-```bash
-cd apps/web
-npm run dev            # local dev server
-npx tsc --noEmit        # type-check
-npm run build            # full production build (also type-checks)
-```
-
-Design tokens live in `app/globals.css` as Tailwind v4 `@theme` variables,
-translated 1:1 from the original `DESIGN.md` prototype — don't hardcode
-hex colors in components; use the token classes (`bg-action-green`,
-`text-on-surface-variant`, etc.).
-
-Every write action must go through `lib/use-contract-write.ts`, never a
-raw `client.writeContract` call — this is what guarantees the full
-transaction-lifecycle UI (wallet request → awaiting signature → submitted
-→ pending → confirmed, plus every failure state) shows up consistently.
+- Read finalized GenLayer state directly for payment-critical actions.
+- Never derive a new attempt index from a preflight `attempt_count`; reconcile
+  the finalized reservation and its `activated_attempt_index`.
+- Persist Base funding recovery state before requesting cross-chain binding.
+- Keep adjudication records visually distinct from funded Base positions.
+- Route GenLayer writes through `lib/use-contract-write.ts` for consistent
+  transaction lifecycle handling.
 
 ## Backend changes
 
-```bash
-cd apps/api
-docker compose up -d          # local Postgres
-npx prisma migrate dev --name <description>   # after schema.prisma changes
-npm run dev                    # local server with the indexer running
-npx tsc --noEmit                # type-check
-```
+- Postgres is discovery/cache only. Registration, funding authorization,
+  binding, and settlement must use fresh direct reads.
+- Normal GenLayer reads go through `readContract()` for timeout and Redis rate
+  limiting. The funding attestor is the only narrow backend write authority.
+- Keep relay, decision-signer, and funding-attestor keys distinct.
+- Prisma schema changes require a migration; do not use `db push` for changes
+  intended for production.
+- Never log signatures, keys, database URLs, or Redis credentials.
 
-If you change `prisma/schema.prisma`, always generate a migration with
-`prisma migrate dev` (not `db push`) so the migration ships to production
-via `prisma migrate deploy` on the next `fly deploy` (see the Dockerfile's
-`CMD`).
+## Documentation
 
-Any new outbound call to GenLayer must go through `readContract()` in
-`src/lib/genlayer.ts` — never call `genlayer-js` directly — so it stays
-subject to the Redis rate limiter.
-
-## Code style
-
-- No comments explaining *what* code does — names should already say
-  that. Comments are for *why*: a non-obvious constraint, a workaround for
-  a specific confirmed bug, a design decision someone would otherwise
-  "simplify" back into the bug it fixes.
-- Prefer explicit, narrow types over `any`. The one place `unknown`/`as`
-  casts are expected is at the GenLayer SDK boundary (its `CalldataEncodable`
-  return type doesn't know the contract's actual return shape).
-- Match the escrow-safety discipline in the contract if you ever touch
-  payout logic: read the ledger, zero it, persist, *then* transfer — never
-  the other order.
-
-## Testing philosophy
-
-- Contract: `genvm-lint` on every change (fast, catches schema issues),
-  `gltest` integration tests for behavior (34 total — 33 deterministic
-  against real StudioNet or the offline `gltest.direct` runner, 1
-  dependent on live LLM output and marked `@pytest.mark.llm`).
-- Frontend/backend: `tsc --noEmit` is the fast gate; a real build
-  (`npm run build`) is the one that actually matches what gets deployed —
-  run it before deploying, not just the type-checker.
-- **Trust the live network over a claim of "fixed" or "tested."** This
-  project has more than once had a fix described as shipped/verified that
-  turned out not to actually be present in the deployed bytecode, or a
-  test suite described as passing that turned out to be silently broken
-  at fixture setup. Before believing either, verify directly: `grep`/`diff`
-  the actual source against `genlayer code <address>` for the contract,
-  and actually run the test suite (not just read it) for tests.
+When addresses, roles, applications, trust assumptions, test counts, or
+deployment commands change, update README, milestone, architecture, security,
+deployment, environment, verification, and project memory in the same commit.
+Retired addresses belong in Git history, not current operations documents.

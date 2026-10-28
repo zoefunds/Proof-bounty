@@ -1,8 +1,7 @@
 # ProofBounty USDC milestone
 
 Production milestone completed on 2026-10-28. This document is the
-authoritative description of the new payment boundary; older GEN escrow
-descriptions in historical review notes describe the retired architecture.
+authoritative description of the current payment boundary.
 
 ## Live contracts
 
@@ -17,12 +16,7 @@ descriptions in historical review notes describe the retired architecture.
 - Frontend: `https://proof-bounty.vercel.app`
 - Backend/API and relay: `https://proofbounty-usdc-api.fly.dev`
 - Fly Postgres: `proofbounty-usdc-db` (fresh milestone database)
-- The legacy `proofbounty-api` app is abandoned and is not part of this deployment.
-
-The former GenLayer deployment `0x8566C605cc1Ffa137312EbE95C77f7294C3412F4`,
-the superseded V2 deployment `0x19943914693743949b7B7c6820ae5E81331909bB`,
-and the former Base escrow `0x6DCf8d1D8b1A6B5Bc88a39DBA037aC20246B58d3`
-are retired and must never be configured.
+- Only `proofbounty-usdc-api` is part of this deployment.
 
 ## Trust and safety boundary
 
@@ -48,8 +42,7 @@ adversarial tests.
   funding is identity-bound and short-lived, and only attested funding becomes
   an adjudication attempt.
 - Winner identity must equal the wallet that funded the corresponding Base
-  attempt. An unbacked GenLayer winner cannot receive USDC; the relay refunds
-  the creator instead.
+  attempt. Unfunded reservations cannot become adjudication attempts.
 - A mismatched bounty deposit is refused during registration. An unregistered
   deposit is recoverable by its creator after seven days without a service
   signature.
@@ -73,7 +66,8 @@ adversarial tests.
    capacity. A short-lived identity-bound authorization funds Base, then the
    attestor activates the exact finalized attempt index and the relay binds it.
 5. GenLayer fetches and adjudicates evidence. It updates state only.
-6. The relay derives an EIP-712 instruction from finalized indexed state.
+6. The relay re-reads finalized GenLayer state and derives an EIP-712
+   instruction; Postgres is discovery/cache only.
 7. Base credits winner/refund/forfeit/fee balances exactly once.
 8. Each recipient claims USDC from Base with their own wallet.
 
