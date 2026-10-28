@@ -74,9 +74,9 @@ deployment and transactions above.
 ## CI availability
 
 The workflow contains dedicated Foundry, GenLayer, frontend, backend, and
-dependency jobs. The appeal-expiry integrity implementation at commit
-`253cab074045a9c1d07ea7ba182f8d38ac54322d` produced run
-[`40706267538`](https://github.com/zoefunds/Proof-bounty/actions/runs/40706267538).
+dependency jobs. The active-appeal bond-integrity implementation at commit
+`48f1b36c760a82918bb92fface7dc02879c90e0c` produced run
+[`40710610247`](https://github.com/zoefunds/Proof-bounty/actions/runs/40710610247).
 GitHub refused to start every runner with: `The job was not started because
 your account is locked due to a billing issue.` Restore the repository owner's
 GitHub billing status and rerun the workflow; no repository change can bypass
