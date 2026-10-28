@@ -5,7 +5,7 @@
 Contract and escrow:
 
 ```bash
-genvm-lint check contracts/proof_bounty.py --json
+genvm-lint lint contracts/proof_bounty.py --json
 gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
 forge test -vv
 ```

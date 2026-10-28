@@ -89,8 +89,8 @@ does not block GenLayer adjudication; the next sweep retries idempotently.
 - API TypeScript build and Prisma generation pass.
 - Web TypeScript and ESLint pass.
 - Offline GenLayer dispute/appeal adjudication tests pass.
-- Live GenLayer reads: counter `0`, balance `0`, fee `250`; schema reports
-  non-payable write methods.
+- Live GenLayer reads after the finalized public trace: counter `1`, contract
+  balance `0`, and fee `250`; schema reports non-payable write methods.
 - Live Base reads confirm USDC, owner, relayer, decision signer, treasury, and
   the 10,000 BPS denominator.
 

@@ -83,7 +83,9 @@ deployment and transactions above.
 ## CI availability
 
 The workflow contains dedicated Foundry, GenLayer, frontend, backend, and
-dependency jobs. At the time of verification, GitHub refused to start any job
-with: `The job was not started because your account is locked due to a billing
-issue.` Restore the repository owner's GitHub billing status and rerun the
-workflow; no repository change can bypass that account-level lock.
+dependency jobs. The latest verified run for the integrity release is
+[`40693072602`](https://github.com/zoefunds/Proof-bounty/actions/runs/40693072602).
+GitHub refused to start every runner with: `The job was not started because
+your account is locked due to a billing issue.` Restore the repository owner's
+GitHub billing status and rerun the workflow; no repository change can bypass
+that account-level lock.

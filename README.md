@@ -78,7 +78,7 @@ apps/api/                       Fastify API, indexer, attestor, and Base relay
 tests/integration/              39 GenLayer tests
 scripts/00-reviewer-verify.mjs  Read-only deployed-source/state verification
 docs/                           Architecture, security, deployment, operations
-memory/MEMORY.md                Historical log; not an operations guide
+memory/MEMORY.md                Current operational snapshot
 ```
 
 Numbered scripts after `00` are retained historical adjudication traces from
@@ -89,7 +89,7 @@ runbook.
 
 ```bash
 forge test -vv
-genvm-lint check contracts/proof_bounty.py --json
+genvm-lint lint contracts/proof_bounty.py --json
 gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
 (cd apps/api && npm ci && npx tsc --noEmit && npx prisma generate && npm run build)
 (cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)

@@ -12,8 +12,7 @@ being mistaken for production configuration.
 - Frontend: `https://proof-bounty.vercel.app`
 - API/relay: `https://proofbounty-usdc-api.fly.dev`
 - Fly app/database: `proofbounty-usdc-api` / `proofbounty-usdc-db`
-- Earlier remediation baseline: `6e86ecba383615102bcc4bd0dad62356ed458c48`;
-  the authoritative release is the current `main` commit.
+- Release source: current `main` branch.
 
 GenLayer is adjudication-only and all write methods are non-payable. Base is
 the only token custodian. Payments use six-decimal USDC.

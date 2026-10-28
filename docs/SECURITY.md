@@ -15,8 +15,14 @@ threshold authorization infrastructure.
 ## Contract controls
 
 - EIP-712 domains bind instructions to Base chain ID and escrow address.
-- Funding binds bounty, reservation, challenger, exact bond, GenLayer contract,
-  and expiry.
+- Bounty funding binds the finalized GenLayer creator, bounty ID, reward, bond,
+  fee, GenLayer contract, and expiry. Delayed orphan recovery deletes the Base
+  slot, so an invalid or abandoned deposit cannot block the ID permanently.
+- Attempt funding binds bounty, reservation, challenger, exact bond, GenLayer
+  contract, and expiry.
+- Appeal funding binds the finalized GenLayer appellant, bounty, attempt,
+  exact appeal bond, GenLayer contract, and expiry. The relay defers any
+  settlement requiring an appeal recipient until that authorized bond exists.
 - Binding authorizations bind the finalized attempt index and Base funding
   transaction hash.
 - Settlement binds all economic fields, canonical state hash, nonce, and time
@@ -39,7 +45,11 @@ GenLayer attestation. Anyone may request confirmation, but they cannot change
 the bound challenger or transaction.
 
 The frontend stores a pending reservation and Base transaction hash locally so
-users can retry binding. Recovery remains possible if the service is down.
+users can retry binding even after the bounty stops accepting new attempts.
+Recovery remains possible if the service is down. If GenLayer activation won
+the race but Base binding failed, recovery credits and zeroes the bond while
+leaving the reservation bindable; a later zero-bond bind preserves the reward
+settlement path without duplicating the bond.
 
 ## Backend controls
 

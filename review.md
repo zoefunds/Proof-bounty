@@ -1,7 +1,6 @@
 # Cross-chain review remediation
 
-This is the current response to the funding and settlement integrity review of
-commit `3d49ee7323e1a2731c12e5e4154d867b1ff5ba4c`.
+This is the current response to the funding and settlement integrity reviews.
 
 | Finding | Remediation | Proof |
 |---|---|---|
@@ -15,8 +14,7 @@ commit `3d49ee7323e1a2731c12e5e4154d867b1ff5ba4c`.
 | Arbitrary wallets could pre-fund appeals | Appeal funding requires finalized-appellant authorization and expiry | appeal authorization Foundry tests |
 | Recovery after activation made binding impossible | Recovered positions remain bindable with a zero bond, preserving reward settlement without double bond payment | activated-recover-bind-settle Foundry test |
 
-This document tracks the current `main` release; the earlier remediation
-baseline was `6e86ecba383615102bcc4bd0dad62356ed458c48`.
+This document tracks the current `main` release.
 
 - GenLayer: `0xdea68d6935dC32A59aFD7063356948c8cfA5E972`
 - Base escrow: `0x642657E3e73091f15354Ca139bC07340fB95e21e`
