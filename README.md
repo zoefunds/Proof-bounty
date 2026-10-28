@@ -5,6 +5,13 @@
 > for live addresses, the cross-chain lifecycle, verification evidence, and
 > the authoritative trust boundary. Older GEN references below are historical.
 
+> **Cross-chain security:** unfunded reservations never consume attempt
+> capacity; Base funding is EIP-712-bound to the exact challenger and
+> reservation; delayed recovery requires no relay signature. Base still
+> relies on a disclosed off-chain attestor/decision signer because it cannot
+> natively verify GenLayer consensus. See
+> [`docs/CROSS_CHAIN_SECURITY.md`](docs/CROSS_CHAIN_SECURITY.md).
+
 > Put money behind a claim. Then let the internet prove whether you earned it.
 
 An onchain marketplace for verifiable public outcomes, built on [GenLayer](https://genlayer.com)
@@ -99,11 +106,12 @@ architecture decision, and every audit round this project has been through
 | Arbiter/appeal override transparency | ✅ Built — `get_settlement_transparency()`; bounded structurally (can never touch an already-paid AI settlement) |
 | End-to-end test with a real, unmanaged browser wallet (MetaMask etc.) | ✅ Manually verified by the project owner against the live frontend — wallet connect, contract calls, and on-chain tx status updates all confirmed working |
 
-**Live contracts:** GenLayer adjudication `0x8566beF0B3507415F29229a9D9A26BF41a9cA505`; Base Sepolia USDC escrow `0x6DC21933ec3D013542185482850C96c753d10cfc`. See [`MILESTONE-USDC.md`](MILESTONE-USDC.md).
+**Live contracts:** GenLayer adjudication `0x9482012290132518c88D967623A15C3DDD0d247E`; Base Sepolia USDC escrow `0xA99384bc4e6c045bBFD239Bbc9297a5C144AF711`. See [`MILESTONE-USDC.md`](MILESTONE-USDC.md).
 
 ## How it works
 
-1. **Create a bounty.** A creator locks GEN (`create_bounty`) against a
+1. **Create a bounty.** A creator declares immutable USDC terms on GenLayer,
+   then deposits the exact reward into the Base Sepolia escrow against a
    title, a claim, a claim polarity (`POSITIVE`/`NEGATIVE` — you can bounty
    either "prove X happened" or "prove X did NOT happen"), a category (one
    of `SECURITY`, `GOVERNANCE`, `OPEN_SOURCE`, `DOCUMENTATION`,
@@ -111,10 +119,12 @@ architecture decision, and every audit round this project has been through
    `PUBLIC_ACCOUNTABILITY`, `OTHER`), a precommitted set of proof criteria,
    a description of acceptable evidence, an arbiter address (may be the
    creator themself), a deadline, and an optional required challenger bond.
-2. **Any number of challengers accept concurrently.** Each `accept_bounty`
-   call locks the bounty's criteria immutably (if not already locked) and
-   opens an independent `Attempt`. Up to `MAX_ATTEMPTS_PER_BOUNTY` (40)
-   concurrent attempts are allowed per bounty — a deliberate cap that
+2. **Challengers reserve, fund, then activate.** `reserve_attempt` creates an
+   expiring identity reservation that consumes no attempt capacity. Base
+   funding requires a short-lived authorization bound to that challenger and
+   reservation. Only after funding is attested does GenLayer create the final
+   `Attempt` and lock criteria. Up to `MAX_ATTEMPTS_PER_BOUNTY` (40) funded
+   attempts are allowed per bounty — a deliberate cap that
    bounds the cost of the settlement-time "mark every other attempt
    LOST_RACE" loop, closing a settlement-availability DoS vector.
 3. **A challenger submits an evidence URL** (`submit_evidence`) and
@@ -221,14 +231,21 @@ docstring section.
 
 ## Escrow safety
 
-- **Exact-value only.** `create_bounty` and `accept_bounty` both require
-  `gl.message.value` to *exactly* equal the amount being escrowed — never
-  "at least." No overpayment is ever silently absorbed.
-- **Zero-then-transfer, everywhere.** Every function that pays out GEN
-  reads the relevant ledger field, zeroes it and persists the new status
-  in storage, and only *then* calls `_send_gen`. This ordering means a
-  reentrant or failed transfer can never leave the contract able to pay
-  the same bond or reward twice.
+- **GenLayer never holds tokens.** All write methods are non-payable; Base
+  Sepolia `ProofBountyEscrow` is the sole USDC custodian.
+- **Identity-bound funding.** EIP-712 authorizations bind bounty,
+  reservation, challenger, exact bond, GenLayer contract, Base chain,
+  escrow, and expiry. Another wallet cannot squat the reservation.
+- **Pull claims and checks-effects-interactions.** Settlement credits a
+  claimable ledger exactly once; recipients withdraw with `claim()` under a
+  reentrancy guard.
+- **Fresh settlement authorization.** Canonical GenLayer state hashes,
+  monotonic per-bounty nonces, short validity windows, recipient constraints,
+  and single-use decisions reject stale, conflicting, unauthorized, or
+  replayed instructions.
+- **Signature-free delayed recovery.** Creators recover unregistered bounty
+  deposits after seven days; challengers recover unbound attempt deposits
+  after authorization expiry plus 24 hours.
 - **Zero-bond bounties are first-class.** A bounty's `required_bond` may
   legitimately be `0`. Every terminal-state transition (`_refund_attempt_bond`,
   `_forfeit_attempt_bond`, `reclaim_bond_after_settlement`) is written to

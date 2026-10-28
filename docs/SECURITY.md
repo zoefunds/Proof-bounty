@@ -69,8 +69,9 @@ is live right now.
   a cap, an attacker could open enough low/no-bond attempts to make the
   eventual legitimate winner's own settlement transaction too expensive to
   execute — denial-of-service on the exact transaction meant to pay
-  someone. Fixed with `MAX_ATTEMPTS_PER_BOUNTY = 40`, enforced in
-  `accept_bounty`.
+  someone. Fixed with `MAX_ATTEMPTS_PER_BOUNTY = 40`, enforced only when an
+  attested Base-funded reservation is activated. Unfunded reservations are
+  separate and consume no capacity.
 - **Zero-bond terminal-state stranding.** `_refund_attempt_bond` /
   `_forfeit_attempt_bond` used to unconditionally revert whenever
   `bond_deposited <= 0` — which meant a bounty with `required_bond = 0`
@@ -209,10 +210,9 @@ none exists yet because the backend never fetches evidence URLs itself.
   what they're about to sign fail into a specific, named state
   (`USER_REJECTED`, `INSUFFICIENT_FUNDS`, `WRONG_NETWORK`, etc.) rather
   than a generic error or a silent no-op.
-- **Exact-value bond/reward checks happen contract-side** (`accept_bounty`
-  and `create_bounty` both reject any `gl.message.value` that isn't an
-  exact match) — the frontend's own pre-flight amount display is
-  convenience only, never trusted as the actual guard.
+- **Exact bond/reward checks happen on Base.** Funding authorizations bind
+  exact six-decimal USDC terms and challenger identity; the escrow verifies
+  them before `transferFrom`. GenLayer is non-payable.
 
 ## 4. Backend API
 

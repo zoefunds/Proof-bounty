@@ -86,6 +86,29 @@ def _create_bounty(
     ).transact(wait_transaction_status=TransactionStatus.FINALIZED)
 
 
+def _reserve_and_activate(contract, challenger, bounty_id=0):
+    """Live-network helper: challenger reserves; contract owner (the test
+    deployer/default connection) attests the synthetic Base funding hash."""
+    reserve = contract.connect(challenger).reserve_attempt(args=[bounty_id]).transact(
+        wait_transaction_status=TransactionStatus.FINALIZED
+    )
+    assert tx_execution_succeeded(reserve)
+    reservation_id = contract.get_reservation_counter(args=[]).call() - 1
+    confirm = contract.confirm_attempt_funding(
+        args=[bounty_id, reservation_id, "0x" + format(reservation_id + 1, "064x")]
+    ).transact(wait_transaction_status=TransactionStatus.FINALIZED)
+    assert tx_execution_succeeded(confirm)
+    return confirm
+
+
+def _direct_reserve_and_activate(contract, direct_vm, owner, challenger, bounty_id=0):
+    with direct_vm.prank(challenger):
+        reservation_id = contract.reserve_attempt(bounty_id)
+    return contract.confirm_attempt_funding(
+        bounty_id, reservation_id, "0x" + format(int(reservation_id) + 1, "064x")
+    )
+
+
 # ============================================================================
 # Deployment / constructor
 # ============================================================================
@@ -174,6 +197,49 @@ def test_create_bounty_rejects_invalid_category(accounts):
     assert not tx_execution_succeeded(tx)
 
 
+def test_unfunded_reservations_do_not_consume_attempt_cap_is_a_safe_noop(
+    direct_deploy, direct_accounts, direct_vm
+):
+    """Fifty abandoned reservations leave the funded attempt count at zero;
+    one attested reservation becomes index zero. This is the anti-cap-DoS
+    invariant introduced by the cross-chain remediation."""
+    creator, treasury, arbiter, challenger = direct_accounts[:4]
+    contract = direct_deploy("proof_bounty.py", treasury, 250)
+    with direct_vm.prank(creator):
+        contract.create_bounty(
+            "Reservation capacity", "Only funded challengers consume capacity.",
+            "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS,
+            arbiter, ONE_DAY, 1_000_000, 5_000_000,
+        )
+    for _ in range(50):
+        with direct_vm.prank(challenger):
+            contract.reserve_attempt(0)
+    assert contract.get_bounty(0)["attempt_count"] == 0
+    assert contract.get_bounty(0)["criteria_locked"] is False
+    index = contract.confirm_attempt_funding(0, 49, "0x" + "49".zfill(64))
+    assert index == 0
+    assert contract.get_bounty(0)["attempt_count"] == 1
+    assert contract.get_attempt(0, 0)["challenger"].lower() == ("0x" + challenger.hex()).lower()
+
+
+def test_only_funding_attestor_can_activate_reservation_is_a_safe_noop(
+    direct_deploy, direct_accounts, direct_vm
+):
+    creator, treasury, arbiter, challenger, attacker = direct_accounts[:5]
+    contract = direct_deploy("proof_bounty.py", treasury, 250)
+    with direct_vm.prank(creator):
+        contract.create_bounty(
+            "Attestor boundary", "Funding must be independently attested.",
+            "POSITIVE", "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS,
+            arbiter, ONE_DAY, 1_000_000, 5_000_000,
+        )
+    with direct_vm.prank(challenger):
+        contract.reserve_attempt(0)
+    with direct_vm.prank(attacker), direct_vm.expect_revert():
+        contract.confirm_attempt_funding(0, 0, "0x" + "01".zfill(64))
+    assert contract.get_bounty(0)["attempt_count"] == 0
+
+
 # ============================================================================
 # accept_bounty / attempt lifecycle
 # ============================================================================
@@ -186,9 +252,7 @@ def test_accept_bounty_locks_criteria_and_bond(accounts):
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=1 * 10**18)
 
-    tx = contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=1 * 10**18, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    tx = _reserve_and_activate(contract, challenger)
     assert tx_execution_succeeded(tx)
 
     bounty = contract.get_bounty(args=[0]).call()
@@ -201,27 +265,27 @@ def test_accept_bounty_locks_criteria_and_bond(accounts):
     assert attempt["challenger"].lower() == challenger.address.lower()
 
 
-def test_accept_bounty_rejects_wrong_bond_amount(accounts):
+def test_reserve_attempt_is_nonpayable(accounts):
     treasury = accounts[1].address
     arbiter = accounts[2].address
     challenger = accounts[3]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=1 * 10**18)
 
-    tx = contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=500000000000000000,  # 0.5 GEN, not the required 1 GEN
+    tx = contract.connect(challenger).reserve_attempt(args=[0]).transact(
+        value=500000000000000000,
         wait_transaction_status=TransactionStatus.FINALIZED,
     )
     assert not tx_execution_succeeded(tx)
 
 
-def test_accept_bounty_rejects_creator_self_attempt(accounts):
+def test_reserve_attempt_rejects_creator_self_attempt(accounts):
     treasury = accounts[1].address
     arbiter = accounts[2].address
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
 
-    tx = contract.accept_bounty(args=[0]).transact(
+    tx = contract.reserve_attempt(args=[0]).transact(
         value=0, wait_transaction_status=TransactionStatus.FINALIZED
     )
     assert not tx_execution_succeeded(tx)
@@ -236,12 +300,8 @@ def test_multiple_concurrent_attempts_allowed(accounts):
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
 
-    tx_a = contract.connect(challenger_a).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
-    tx_b = contract.connect(challenger_b).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    tx_a = _reserve_and_activate(contract, challenger_a)
+    tx_b = _reserve_and_activate(contract, challenger_b)
     assert tx_execution_succeeded(tx_a)
     assert tx_execution_succeeded(tx_b)
 
@@ -260,9 +320,7 @@ def test_submit_evidence_rejects_non_http_url(accounts):
     challenger = accounts[3]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
 
     tx = contract.connect(challenger).submit_evidence(
         args=[0, 0, "ftp://not-http.example", "desc"]
@@ -277,9 +335,7 @@ def test_submit_evidence_rejects_wrong_caller(accounts):
     stranger = accounts[4]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
 
     tx = contract.connect(stranger).submit_evidence(
         args=[0, 0, "https://example.com/evidence", "desc"]
@@ -314,9 +370,7 @@ def test_cancel_bounty_rejects_after_criteria_locked(accounts):
     challenger = accounts[3]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
 
     tx = contract.cancel_bounty(args=[0]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
@@ -401,8 +455,8 @@ def test_claim_creator_timeout_rejects_while_dispute_is_still_resolving(
         )
     direct_vm.value = 0
 
+    _direct_reserve_and_activate(contract, direct_vm, creator, challenger)
     with direct_vm.prank(challenger):
-        contract.accept_bounty(0)
         contract.raise_dispute(0, 0, "Escalating before any AI verification.")
     with direct_vm.prank(arbiter):
         contract.resolve_dispute(0, 0, "APPROVE", "Arbiter reviewed and approves.", 0)
@@ -495,8 +549,8 @@ def test_attempts_rejected_is_not_double_counted_across_reject_then_forfeit(
         )
     direct_vm.value = 0
 
+    _direct_reserve_and_activate(contract, direct_vm, creator, challenger)
     with direct_vm.prank(challenger):
-        contract.accept_bounty(0)
         contract.submit_evidence(0, 0, "https://example.com/evidence", "Evidence description.")
 
     direct_vm.mock_web(r".*", {"status": 200, "body": "Mocked evidence page content."})
@@ -540,9 +594,7 @@ def test_raise_dispute_rejects_empty_reason(accounts):
     challenger = accounts[3]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
 
     tx = contract.connect(challenger).raise_dispute(args=[0, 0, ""]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
@@ -557,9 +609,7 @@ def test_resolve_dispute_rejects_non_arbiter(accounts):
     stranger = accounts[4]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
     contract.connect(challenger).raise_dispute(args=[0, 0, "AI verdict was wrong"]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
     )
@@ -576,9 +626,7 @@ def test_force_default_resolution_rejects_before_grace_period(accounts):
     challenger = accounts[3]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0, deadline=ONE_HOUR)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
     contract.connect(challenger).raise_dispute(args=[0, 0, "AI verdict was wrong"]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
     )
@@ -649,9 +697,7 @@ def test_request_verification_full_lifecycle(accounts):
         bond=0,
         category="DOCUMENTATION",
     )
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
     contract.connect(challenger).submit_evidence(
         args=[0, 0, "https://docs.genlayer.com/", "GenLayer's own documentation homepage"]
     ).transact(wait_transaction_status=TransactionStatus.FINALIZED)
@@ -710,17 +756,16 @@ def test_max_attempts_per_bounty_cap_enforced(accounts):
     # needs a fully settled execution_result to assert against.
     for i in range(40):
         time.sleep(RATE_LIMIT_PACING_SECONDS)
-        tx = contract.connect(challenger).accept_bounty(args=[0]).transact(
-            value=0, wait_transaction_status=TransactionStatus.ACCEPTED
-        )
+        tx = _reserve_and_activate(contract, challenger)
         assert tx_execution_succeeded(tx), f"attempt {i + 1}/40 should be under the cap"
 
     bounty = contract.get_bounty(args=[0]).call()
     assert bounty["attempt_count"] == 40
 
-    tx_over_cap = contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    reserve = contract.connect(challenger).reserve_attempt(args=[0]).transact(wait_transaction_status=TransactionStatus.FINALIZED)
+    assert tx_execution_succeeded(reserve), "unfunded reservation itself must not be cap-blocked"
+    reservation_id = contract.get_reservation_counter(args=[]).call() - 1
+    tx_over_cap = contract.confirm_attempt_funding(args=[0, reservation_id, "0x" + format(reservation_id + 1, "064x")]).transact(wait_transaction_status=TransactionStatus.FINALIZED)
     assert not tx_execution_succeeded(tx_over_cap), "the 41st attempt must be rejected by MAX_ATTEMPTS_PER_BOUNTY"
 
 
@@ -741,12 +786,8 @@ def test_zero_bond_reclaim_after_settlement_rejects_before_appeal_window(account
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0, deadline=ONE_HOUR)
 
-    contract.connect(challenger_a).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
-    contract.connect(challenger_b).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger_a)
+    _reserve_and_activate(contract, challenger_b)
 
     contract.connect(challenger_a).raise_dispute(args=[0, 0, "Escalating to arbiter directly"]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
@@ -820,10 +861,8 @@ def test_zero_bond_reclaim_after_settlement_is_a_safe_noop(direct_vm, direct_dep
     )
     direct_vm.value = 0
 
-    with direct_vm.prank(challenger_a):
-        contract.accept_bounty(0)
-    with direct_vm.prank(challenger_b):
-        contract.accept_bounty(0)
+    _direct_reserve_and_activate(contract, direct_vm, direct_accounts[0], challenger_a)
+    _direct_reserve_and_activate(contract, direct_vm, direct_accounts[0], challenger_b)
 
     with direct_vm.prank(challenger_a):
         contract.raise_dispute(0, 0, "Escalating to arbiter directly")
@@ -877,9 +916,7 @@ def test_appeal_arbiter_resolution_rejects_wrong_bond_amount(accounts):
     challenger = accounts[3]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
     contract.connect(challenger).raise_dispute(args=[0, 0, "Disputing directly"]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
     )
@@ -903,9 +940,7 @@ def test_appeal_arbiter_resolution_rejects_stranger(accounts):
     stranger = accounts[4]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
     contract.connect(challenger).raise_dispute(args=[0, 0, "Disputing directly"]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
     )
@@ -931,9 +966,7 @@ def test_appeal_arbiter_resolution_success_reaches_appealed_status(accounts):
     creator = accounts[0]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=1 * 10**18)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=1 * 10**18, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
     contract.connect(challenger).raise_dispute(args=[0, 0, "Disputing directly"]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
     )
@@ -985,9 +1018,7 @@ def test_appeal_bond_is_preserved_as_an_exact_integer(accounts):
     exact_bond = 234_567_891_234_567_891
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=exact_bond)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=exact_bond, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
     contract.connect(challenger).raise_dispute(args=[0, 0, "Disputing directly"]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
     )
@@ -1040,9 +1071,7 @@ def test_resolve_appeal_rejects_when_not_appealed(accounts):
     stranger = accounts[4]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
 
     # A total stranger may call it (permissionless) -- it still correctly
     # rejects, but for state-machine reasons (never appealed), not access
@@ -1074,9 +1103,7 @@ def test_resolve_dispute_rejects_empty_resolution_note(accounts):
     challenger = accounts[3]
     contract = _deploy(treasury)
     _create_bounty(contract, arbiter, bond=0)
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
     contract.connect(challenger).raise_dispute(args=[0, 0, "Disputing directly"]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
     )
@@ -1134,8 +1161,8 @@ def test_finalize_never_trusts_arbiter_even_when_unappealed_and_no_prior_ai_verd
     )
     direct_vm.value = 0
 
+    _direct_reserve_and_activate(contract, direct_vm, direct_accounts[0], challenger)
     with direct_vm.prank(challenger):
-        contract.accept_bounty(0)
         contract.raise_dispute(0, 0, "Escalating before any AI verification -- I want the arbiter's direct read.")
 
     before = contract.get_settlement_transparency()
@@ -1219,8 +1246,7 @@ def test_human_override_not_flagged_when_arbiter_agrees_with_ai_verdict(direct_v
     )
     direct_vm.value = 0
 
-    with direct_vm.prank(challenger):
-        contract.accept_bounty(0)
+    _direct_reserve_and_activate(contract, direct_vm, direct_accounts[0], challenger)
 
     # Simulate an already-recorded AI REJECTED verdict directly on storage
     # (the real path is `request_verification`; this test isolates the
@@ -1256,9 +1282,7 @@ def test_resolve_appeal_is_decided_by_genlayer_consensus_not_a_human(accounts):
     _create_bounty(
         contract, arbiter, bond=0, category="DOCUMENTATION",
     )
-    contract.connect(challenger).accept_bounty(args=[0]).transact(
-        value=0, wait_transaction_status=TransactionStatus.FINALIZED
-    )
+    _reserve_and_activate(contract, challenger)
     contract.connect(challenger).raise_dispute(args=[0, 0, "Escalating directly, no prior AI verdict on this attempt"]).transact(
         wait_transaction_status=TransactionStatus.FINALIZED
     )

@@ -9,13 +9,10 @@
  * Usage:
  *   node 00-reviewer-verify.mjs
  *
- * For the write-path lifecycle proof (real bounty creation, evidence
- * submission, verification, dispute, appeal), see scripts/10 through 13
- * (realistic, non-placeholder content, run against live StudioNet) and
- * `gltest tests/integration -v -s --network studionet --chain-type studionet`
- * for the automated suite (drop `-m "not llm"` is not needed here -- that
- * flag excludes the one LLM-dependent test from ROUTINE runs; include it
- * explicitly if you want that path too).
+ * Current custody-path verification is the Foundry suite in
+ * contracts/base/test. Older numbered scripts are retained as historical
+ * GenLayer adjudication evidence and predate the reservation/attestation
+ * milestone; they are not the current cross-chain runbook.
  */
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -68,6 +65,8 @@ section("Critical read methods");
 const reads = [
   ["get_bounty_counter", []],
   ["get_contract_balance", []],
+  ["get_funding_attestor", []],
+  ["get_reservation_counter", []],
   ["get_valid_categories", []],
   ["get_settlement_transparency", []],
   ["list_bounties", [0, 10]],
@@ -93,10 +92,10 @@ try {
   fail("get_settlement_transparency", err.message?.slice(0, 200));
 }
 
-section("Lifecycle test coverage (not run here -- see docs/CONTRACT_REVIEW.md)");
-console.log("  Automated (34 tests): gltest tests/integration -v -s --network studionet --chain-type studionet");
-console.log("  Manual live scripts:  node 01-initial-state.mjs ... node 13-product-test-d-cancel-and-partial.mjs");
-console.log("  Full invariant-to-test map: docs/CONTRACT_REVIEW.md");
+section("Lifecycle test coverage (not run here -- see docs/VERIFICATION.md)");
+console.log("  Base custody: forge test -vv");
+console.log('  GenLayer direct: gltest tests/integration -v -s -k "is_a_safe_noop or human_override"');
+console.log("  Security boundary: docs/CROSS_CHAIN_SECURITY.md");
 
 section("Summary");
 if (process.exitCode === 1) {

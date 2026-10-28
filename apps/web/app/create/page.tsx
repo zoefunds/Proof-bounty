@@ -48,6 +48,7 @@ export default function CreateBountyPage() {
   const { data: nextBountyId } = useContractRead<number>("get_bounty_counter");
   const baseEscrow = useBaseEscrow();
   const [fundingError, setFundingError] = useState<string | null>(null);
+  const [createdBountyId, setCreatedBountyId] = useState<number | null>(null);
 
   const canProceedStep1 = title.trim().length > 0 && claimText.trim().length > 0;
   const canProceedStep2 = criteria.some((c) => c.trim().length > 0);
@@ -90,6 +91,7 @@ export default function CreateBountyPage() {
           .filter((b) => b.creator.toLowerCase() === address.toLowerCase() && b.title === title.trim() && BigInt(b.reward_amount) === toUsdcUnits(reward))
           .sort((a, b) => b.bounty_id - a.bounty_id)[0];
         if (!created) throw new Error("The finalized GenLayer bounty could not be reconciled; no USDC was moved.");
+        setCreatedBountyId(created.bounty_id);
         await baseEscrow.approve();
         await baseEscrow.fundBounty(
           created.bounty_id,
@@ -110,8 +112,8 @@ export default function CreateBountyPage() {
         <div className="glass-panel rounded-xl p-10 text-center max-w-md">
           <h1 className="font-headline text-2xl text-on-surface mb-3">Connect Your Wallet</h1>
           <p className="font-body text-sm text-on-surface-variant">
-            You need a connected wallet to create and fund a bounty — the reward is locked from
-            your wallet in the same transaction that creates the bounty.
+            You need a connected wallet to create the GenLayer adjudication record, then fund its
+            matching USDC reward position on Base Sepolia.
           </p>
         </div>
       </main>
@@ -331,7 +333,7 @@ export default function CreateBountyPage() {
                 <ReviewRow label="Deadline" value={`${Math.round(deadlineSeconds / 86400)} days from now`} />
               </div>
               <TxStateBanner state={createTx.state} txHash={createTx.txHash} errorMessage={createTx.errorMessage} />
-              {fundingError && <p className="text-sm text-status-rejected">Base funding failed: {fundingError}. The GenLayer record exists but is not funded; retry from the bounty page.</p>}
+              {fundingError && <div className="space-y-2"><p className="text-sm text-status-rejected">Base funding failed: {fundingError}. The GenLayer adjudication record exists, but it is not a funded Base position.</p>{createdBountyId !== null && <Button onClick={() => router.push(`/bounty/${createdBountyId}`)}>Open recovery actions</Button>}</div>}
             </StepShell>
           )}
 

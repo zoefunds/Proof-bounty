@@ -10,6 +10,7 @@ import { reputationRoutes } from "./routes/reputation.js";
 import { notificationRoutes } from "./routes/notifications.js";
 import { evidenceRoutes } from "./routes/evidence.js";
 import { startBaseRelayer } from "./services/base-relayer.js";
+import { baseFundingRoutes } from "./routes/base-funding.js";
 
 const app = Fastify({
   logger: {
@@ -35,6 +36,7 @@ await app.register(activityRoutes);
 await app.register(reputationRoutes);
 await app.register(notificationRoutes);
 await app.register(evidenceRoutes);
+await app.register(baseFundingRoutes);
 
 // Liveness probe for Fly.io's health check — deliberately separate from
 // /health's indexer status. A transient GenLayer RPC hiccup should never

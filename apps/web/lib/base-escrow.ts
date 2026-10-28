@@ -8,7 +8,9 @@ import { BASE_ESCROW_ADDRESS, BASE_SEPOLIA_CHAIN_ID, BASE_USDC_ADDRESS } from ".
 const ERC20_ABI = ["function approve(address spender,uint256 amount) returns (bool)"];
 const ESCROW_ABI = [
   "function fundBounty(uint256 bountyId,uint256 reward,uint256 requiredBond,uint16 feeBps)",
-  "function fundAttempt(uint256 bountyId,uint256 attemptIndex)",
+  "function fundAttempt(uint256 bountyId,uint256 reservationId,uint64 authorizationExpiry,bytes authorization)",
+  "function recoverPendingAttempt(uint256 bountyId,uint256 reservationId)",
+  "function recoverOrphanBounty(uint256 bountyId)",
   "function fundAppeal(uint256 bountyId,uint256 attemptIndex)",
   "function claim()",
   "function claimable(address account) view returns (uint256)",
@@ -43,9 +45,19 @@ export function useBaseEscrow() {
       const { escrow } = await contracts();
       await (await escrow.fundBounty(id, reward, bond, feeBps)).wait();
     },
-    fundAttempt: async (id: number, index: number) => {
+    fundAttempt: async (id: number, reservationId: number, authorizationExpiry: number, authorization: string) => {
       const { escrow } = await contracts();
-      await (await escrow.fundAttempt(id, index)).wait();
+      const tx = await escrow.fundAttempt(id, reservationId, authorizationExpiry, authorization);
+      await tx.wait();
+      return String(tx.hash);
+    },
+    recoverPendingAttempt: async (id: number, reservationId: number) => {
+      const { escrow } = await contracts();
+      await (await escrow.recoverPendingAttempt(id, reservationId)).wait();
+    },
+    recoverOrphanBounty: async (id: number) => {
+      const { escrow } = await contracts();
+      await (await escrow.recoverOrphanBounty(id)).wait();
     },
     fundAppeal: async (id: number, index: number) => {
       const { escrow } = await contracts();
@@ -56,4 +68,21 @@ export function useBaseEscrow() {
       await (await escrow.claim()).wait();
     },
   };
+}
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "";
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.message ?? payload.error ?? "Base reconciliation request failed");
+  return payload as T;
+}
+
+export function requestAttemptFundingAuthorization(bountyId: number, reservationId: number, challenger: string) {
+  return post<{ authorization: string; authorizationExpiry: number; bond: string }>("/base/funding-authorization", { bountyId, reservationId, challenger });
+}
+
+export function confirmAttemptFunding(bountyId: number, reservationId: number, challenger: string, baseFundingTxHash: string) {
+  return post<{ attemptIndex: number; genlayerTxHash: string; baseBindingTxHash: string | null; alreadyBound: boolean }>("/base/funding-confirmation", { bountyId, reservationId, challenger, baseFundingTxHash });
 }

@@ -8,7 +8,7 @@
  * CONFIRMED, plus REJECTED / FAILED / TIMEOUT / WRONG_NETWORK /
  * INSUFFICIENT_FUNDS / RPC_ERROR / USER_REJECTED — as a single reusable
  * hook, so no page has to hand-roll (or skip) proper wallet UX. Every
- * bounty/attempt action in this app (`create_bounty`, `accept_bounty`,
+ * bounty/attempt action in this app (`create_bounty`, `reserve_attempt`,
  * `submit_evidence`, `request_verification`, disputes, admin) goes through
  * this hook rather than calling `client.writeContract` directly.
  */

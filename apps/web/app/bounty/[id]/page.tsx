@@ -1,11 +1,12 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useContractRead } from "@/lib/use-contract-read";
 import { useContractWrite } from "@/lib/use-contract-write";
 import { useWallet } from "@/lib/wallet-context";
-import { useBaseEscrow } from "@/lib/base-escrow";
+import { confirmAttemptFunding, requestAttemptFundingAuthorization, useBaseEscrow } from "@/lib/base-escrow";
+import { getContractAddress, getReadOnlyClient } from "@/lib/genlayer-client";
 import { useNow } from "@/lib/use-now";
 import { formatGen, formatDeadline, formatTimestamp, truncateAddress, isExpired } from "@/lib/format";
 import { canClaimBountyTimeout } from "@/lib/bounty-actions";
@@ -88,7 +89,7 @@ export default function BountyDetailPage() {
           </p>
           {bounty.criteria_locked && (
             <p className="font-mono-data text-[11px] text-action-green mt-4">
-              🔒 Locked — immutable since the first attempt was accepted.
+              🔒 Locked — immutable since the first funded attempt was activated.
             </p>
           )}
         </div>
@@ -210,22 +211,92 @@ function BountyActionPanel({
   const timeoutTx = useContractWrite();
   const baseEscrow = useBaseEscrow();
   const [baseError, setBaseError] = useState<string | null>(null);
+  const [fundedRecovery, setFundedRecovery] = useState<{ reservationId: number; baseFundingTxHash: string } | null>(null);
+  const [fundingStage, setFundingStage] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
+  const recoveryKey = address ? `proofbounty:funding-recovery:${address.toLowerCase()}:${bounty.bounty_id}` : "";
+  useEffect(() => {
+    if (!recoveryKey) return;
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      const saved = window.localStorage.getItem(recoveryKey);
+      if (!saved || cancelled) return;
+      try { setFundedRecovery(JSON.parse(saved)); } catch { window.localStorage.removeItem(recoveryKey); }
+    });
+    return () => { cancelled = true; };
+  }, [recoveryKey]);
+
+  function rememberRecovery(value: { reservationId: number; baseFundingTxHash: string } | null) {
+    setFundedRecovery(value);
+    if (!recoveryKey) return;
+    if (value) window.localStorage.setItem(recoveryKey, JSON.stringify(value));
+    else window.localStorage.removeItem(recoveryKey);
+  }
+
   async function handleAccept() {
+    if (!address) return;
+    setBaseError(null);
+    setFundingStage("Creating a non-capacity-consuming GenLayer funding reservation…");
+    const client = getReadOnlyClient();
+    const before = Number(await client.readContract({ address: getContractAddress(), functionName: "get_reservation_counter", args: [] }));
     const ok = await acceptTx.write({
-      functionName: "accept_bounty",
+      functionName: "reserve_attempt",
       args: [bounty.bounty_id],
     });
     if (ok) {
       try {
+        const after = Number(await client.readContract({ address: getContractAddress(), functionName: "get_reservation_counter", args: [] }));
+        let reservationId: number | null = null;
+        for (let id = before; id < after; id++) {
+          const reservation = await client.readContract({ address: getContractAddress(), functionName: "get_attempt_reservation", args: [id] }) as unknown as { bounty_id: number; challenger: string; status_label: string };
+          if (reservation.bounty_id === bounty.bounty_id && reservation.challenger.toLowerCase() === address.toLowerCase() && reservation.status_label === "PENDING_FUNDING") reservationId = id;
+        }
+        if (reservationId === null) throw new Error("Finalized reservation could not be reconciled. No Base funds were moved.");
+        setFundingStage("Obtaining identity-bound funding authorization…");
+        const auth = await requestAttemptFundingAuthorization(bounty.bounty_id, reservationId, address);
         await baseEscrow.approve();
-        await baseEscrow.fundAttempt(bounty.bounty_id, bounty.attempt_count);
+        setFundingStage("Funding the exact reservation on Base Sepolia…");
+        const baseFundingTxHash = await baseEscrow.fundAttempt(bounty.bounty_id, reservationId, auth.authorizationExpiry, auth.authorization);
+        rememberRecovery({ reservationId, baseFundingTxHash });
+        setFundingStage("Attesting funding and binding the finalized attempt index…");
+        await confirmAttemptFunding(bounty.bounty_id, reservationId, address, baseFundingTxHash);
+        rememberRecovery(null);
+        setFundingStage("Funded Base position and GenLayer attempt are bound.");
         onChanged();
       } catch (err) {
         setBaseError(err instanceof Error ? err.message : String(err));
       }
     }
+  }
+
+  async function retryConfirmation() {
+    if (!address || !fundedRecovery) return;
+    try {
+      setBaseError(null); setFundingStage("Retrying cross-chain attestation and binding…");
+      await confirmAttemptFunding(bounty.bounty_id, fundedRecovery.reservationId, address, fundedRecovery.baseFundingTxHash);
+      rememberRecovery(null); setFundingStage("Funded Base position and GenLayer attempt are bound."); onChanged();
+    } catch (err) { setBaseError(err instanceof Error ? err.message : String(err)); }
+  }
+
+  async function recoverFunding() {
+    if (!fundedRecovery) return;
+    try { await baseEscrow.recoverPendingAttempt(bounty.bounty_id, fundedRecovery.reservationId); rememberRecovery(null); setFundingStage("Unbound bond credited for claim on Base Sepolia."); }
+    catch (err) { setBaseError(err instanceof Error ? err.message : String(err)); }
+  }
+
+  async function retryBountyFunding() {
+    try {
+      setBaseError(null); setFundingStage("Funding or repairing the Base reward position…");
+      await baseEscrow.approve();
+      await baseEscrow.fundBounty(bounty.bounty_id, BigInt(bounty.reward_amount), BigInt(bounty.required_bond), bounty.platform_fee_bps);
+      setFundingStage("Base reward funded. Registration will be reconciled by the relay.");
+    } catch (err) { setBaseError(err instanceof Error ? err.message : String(err)); }
+  }
+
+  async function recoverOrphanBounty() {
+    try { await baseEscrow.recoverOrphanBounty(bounty.bounty_id); setFundingStage("Orphan reward credited for claim on Base Sepolia."); }
+    catch (err) { setBaseError(err instanceof Error ? err.message : String(err)); }
   }
 
   async function handleCancel() {
@@ -268,7 +339,9 @@ function BountyActionPanel({
             </div>
           )}
           <TxStateBanner state={acceptTx.state} txHash={acceptTx.txHash} errorMessage={acceptTx.errorMessage} />
-          {baseError && <p className="font-body text-xs text-status-rejected">Base Sepolia funding failed: {baseError}</p>}
+          {fundingStage && <p className="font-body text-xs text-electric-blue">{fundingStage}</p>}
+          {baseError && <p className="font-body text-xs text-status-rejected">Cross-chain funding needs attention: {baseError}</p>}
+          {fundedRecovery && <div className="rounded border border-status-partial/40 p-3 text-xs text-on-surface-variant"><p>The Base deposit exists, but it is not yet bound to a funded GenLayer attempt. Retry binding now. If the attestor remains unavailable, recover the unbound bond after the authorization expiry plus 24 hours.</p><div className="mt-2 flex gap-2"><Button onClick={retryConfirmation}>Retry binding</Button><Button variant="ghost" onClick={recoverFunding}>Recover unbound bond</Button></div></div>}
         </>
       )}
       {canCancel && (
@@ -280,6 +353,7 @@ function BountyActionPanel({
             Cancel & Refund
           </Button>
           <TxStateBanner state={cancelTx.state} txHash={cancelTx.txHash} errorMessage={cancelTx.errorMessage} />
+          <div className="rounded border border-border-subtle p-3 text-xs text-on-surface-variant"><p>If GenLayer creation succeeded but Base funding did not, retry the exact reward deposit. A mismatched or unregistered deposit can be recovered directly by its creator after seven days without a relay signature.</p><div className="mt-2 flex gap-2"><Button onClick={retryBountyFunding}>Retry Base funding</Button><Button variant="ghost" onClick={recoverOrphanBounty}>Recover orphan deposit</Button></div></div>
         </>
       )}
       {canClaimTimeout && (

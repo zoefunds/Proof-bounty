@@ -7,6 +7,16 @@ on:
     branches: [main]
 
 jobs:
+  base-escrow-tests:
+    name: Base escrow tests (Foundry)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - run: forge test -vv
+
   contract-lint:
     name: Contract lint + schema validation
     runs-on: ubuntu-latest
@@ -63,6 +73,8 @@ jobs:
           NEXT_PUBLIC_GENLAYER_RPC_URL: "https://studio.genlayer.com/api"
           NEXT_PUBLIC_API_URL: "https://proofbounty-usdc-api.fly.dev"
           NEXT_PUBLIC_REOWN_PROJECT_ID: "00000000000000000000000000000000"
+          NEXT_PUBLIC_BASE_ESCROW_ADDRESS: "0x0000000000000000000000000000000000000001"
+          NEXT_PUBLIC_BASE_USDC_ADDRESS: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
 
   backend:
     name: Backend typecheck, build

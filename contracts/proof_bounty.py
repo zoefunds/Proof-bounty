@@ -66,10 +66,15 @@ END-TO-END TRACE: BASE USDC -> GENVM FETCH -> VALIDATOR CONSENSUS ->
            paths do not exist -- see below; the ONLY way criteria change
            after this point is that they become immutable on first accept).
 
-    `accept_bounty(bounty_id)`  [challenger, non-payable]
-        -> The challenger separately funds the indexed Base attempt.
-           `Bounty.criteria_locked`
-           flips permanently True on the FIRST call for a given bounty --
+    `reserve_attempt(bounty_id)`  [challenger, non-payable]
+        -> Creates an expiring identity reservation that consumes no funded
+           attempt capacity. The challenger funds that exact reservation on
+           Base under an EIP-712 identity-bound authorization.
+
+    `confirm_attempt_funding(bounty_id, reservation_id, base_tx_hash)`
+        -> Funding-attestor-only activation after Base receipt verification.
+           `Bounty.criteria_locked` flips permanently True on the FIRST
+           activated/funded attempt for a given bounty --
            from this instant on, NO code path in this contract can alter
            `proof_criteria`/`evidence_requirements`/`claim_text`. The
            question being judged cannot move after a challenger has
@@ -221,15 +226,14 @@ SETTLEMENT AVAILABILITY -- WHY ATTEMPTS ARE CAPPED
 
 `_mark_other_attempts_lost_race` runs once, every time a bounty settles,
 over every attempt that bounty has EVER accumulated. Without a bound,
-an attacker could open enough low/zero-bond attempts on a bounty
-(`accept_bounty` has no per-challenger uniqueness rule by design -- the
-marketplace explicitly allows concurrent racing attempts) to make that
+an attacker could open enough low/zero-bond attempts on a bounty to make that
 loop, and therefore the LEGITIMATE WINNER's own settlement transaction,
 too expensive to execute -- a denial-of-service on the exact transaction
 meant to pay someone. `MAX_ATTEMPTS_PER_BOUNTY = 40` bounds that cost
 to a fixed, predictable ceiling regardless of how popular a bounty
 becomes, while remaining generous for any real marketplace bounty (each
-attempt still costs the attacker real bond/gas to open).
+attempt has independently attested Base funding; unfunded reservations are
+stored outside this loop and consume no cap).
 
 ======================================================================
 EVIDENCE MANIFEST -- WHAT "PROOF" ACTUALLY MEANS HERE
@@ -499,7 +503,8 @@ Pagination is via `start_id` / `limit` parameters."""
 
 MAX_ATTEMPTS_PER_BOUNTY: int = 40
 """Hard cap on concurrent attempts a single bounty can ever accumulate,
-enforced in `accept_bounty`. This is a settlement-availability guarantee,
+enforced when `confirm_attempt_funding` activates an attested reservation.
+Unfunded reservations are separate and cannot consume this cap. This is a settlement-availability guarantee,
 not a cosmetic limit: `_mark_other_attempts_lost_race` (called every time
 a bounty settles) loops once over every existing attempt on that bounty to
 flip still-live ones to LOST_RACE. Without a cap, an attacker could open
@@ -509,6 +514,12 @@ practical execution limits, denying the legitimate winner their payout.
 40 is generous for any real marketplace bounty (each attempt still costs
 the attacker gas/fees to open) while keeping the settlement loop's cost
 bounded and predictable regardless of how popular a bounty becomes."""
+
+FUNDING_RESERVATION_SECONDS: int = 2 * 3600
+"""A reservation must be funded and attested within two hours. Pending
+reservations are stored separately from adjudication attempts and therefore
+never consume `MAX_ATTEMPTS_PER_BOUNTY`; abandoned reservations cannot block
+legitimate challengers."""
 
 VERIFICATION_GRACE_SECONDS: int = 24 * 3600
 """Extra buffer after `Bounty.deadline` before `claim_creator_timeout`
@@ -663,6 +674,24 @@ def _content_digest(content: str) -> str:
 # are exactly the pattern that has previously caused "could not load
 # contract schema" failures against real GenVM runners; this file never
 # uses either.
+
+
+@allow_storage
+@dataclass
+class AttemptReservation:
+    bounty_id: u256
+    reservation_id: u256
+    challenger: Address
+    status: u8
+    created_at: u256
+    funding_deadline: u256
+    activated_attempt_index: u256
+    base_funding_tx_hash: str
+
+
+RESERVATION_PENDING: int = 0
+RESERVATION_ACTIVATED: int = 1
+RESERVATION_EXPIRED: int = 2
 
 
 @allow_storage
@@ -826,12 +855,13 @@ class Bounty:
     status: u8
 
     reward_amount: u256
-    """Agreed reward term, in native GEN units."""
+    """Agreed reward term, in six-decimal Base Sepolia USDC units."""
     reward_deposited: u256
     """Live reward escrow ledger. Authoritative for all payout math."""
 
     required_bond: u256
-    """Bond every challenger must lock exactly, via `accept_bounty`. Zero
+    """Bond every challenger must lock exactly on Base before a reservation
+    can be activated by `confirm_attempt_funding`. Zero
     means no bond is required."""
 
     platform_fee_bps: u256
@@ -916,10 +946,12 @@ class ProofBounty(gl.Contract):
 
     Typical call sequence, one bounty, one winning attempt:
 
-        1. `create_bounty(...)`                    -- creator, payable == reward_amount
-        2. `accept_bounty(bounty_id)`               -- challenger, payable == required_bond
-        3. `submit_evidence(bounty_id, idx, url, description)`  -- challenger
-        4. `request_verification(bounty_id, idx)`   -- anyone (permissionless trigger)
+        1. `create_bounty(...)`                    -- creator, non-payable terms
+        2. `reserve_attempt(bounty_id)`            -- challenger, no cap consumed
+        3. Fund the exact reservation on Base; the funding attestor calls
+           `confirm_attempt_funding(...)`, creating the final attempt index
+        4. `submit_evidence(bounty_id, idx, url, description)`  -- challenger
+        5. `request_verification(bounty_id, idx)`   -- anyone (permissionless trigger)
                -> APPROVED / PARTIAL: reward settled to this attempt automatically;
                                        every other still-open attempt becomes
                                        reclaimable via `reclaim_bond_after_settlement`
@@ -971,6 +1003,9 @@ class ProofBounty(gl.Contract):
     """Keyed by the composite `attempt_key` (`bounty_id * 100_000 + index`)."""
 
     reputation: TreeMap[Address, Reputation]
+    funding_attestor: Address
+    reservation_counter: u256
+    reservations: TreeMap[u256, AttemptReservation]
 
     attempts_settled_by_ai_consensus: u256
     """Incremented exactly once per attempt, the moment its FINAL economic
@@ -1027,9 +1062,11 @@ class ProofBounty(gl.Contract):
         if treasury == self._zero_address():
             raise gl.vm.UserError("Treasury address must not be the zero address")
         self.treasury = treasury
+        self.funding_attestor = self.owner
         self.default_fee_bps = u256(default_fee_bps)
         self.paused = False
         self.bounty_counter = u256(0)
+        self.reservation_counter = u256(0)
         self.attempts_settled_by_ai_consensus = u256(0)
         self.attempts_settled_by_human_override = u256(0)
 
@@ -1806,13 +1843,11 @@ parsable by a JSON parser without errors:
     def cancel_bounty(self, bounty_id: int) -> None:
         """
         Cancel a bounty and refund its full reward to the creator. Only
-        allowed while criteria are not yet locked (i.e. no attempt has ever
-        been accepted) -- once a challenger has committed a bond, the
+        allowed while criteria are not yet locked (i.e. no funded attempt has
+        been activated) -- once a challenger has committed a verified bond, the
         reward can no longer be pulled out from under them; cancellation
-        must go through the timeout/dispute paths instead. If any attempts
-        were created but never accepted (impossible in the current flow
-        since `accept_bounty` is what both creates and funds an attempt in
-        one call), this still safely no-ops on the attempt side.
+        must go through the timeout/dispute paths instead. Pending funding
+        reservations do not lock criteria and do not prevent cancellation.
         """
         bounty = self._get_bounty(bounty_id)
         self._require_creator(bounty)
@@ -1907,20 +1942,12 @@ parsable by a JSON parser without errors:
     # ==================================================================
 
     @gl.public.write
-    def accept_bounty(self, bounty_id: int) -> int:
+    def reserve_attempt(self, bounty_id: int) -> int:
         """
-        Open a new non-payable adjudication attempt. The matching bond is
-        funded and identity-bound by the Base Sepolia escrow. Any
-        number of challengers may hold concurrent open attempts on the
-        same OPEN bounty -- this is the marketplace "N attempts" model
-        (module docstring) -- up to `MAX_ATTEMPTS_PER_BOUNTY`, which bounds
-        the settlement-loop cost in `_mark_other_attempts_lost_race` (audit-
-        driven fix: without this cap, an attacker could open enough
-        attempts to make the eventual winner's own settlement transaction
-        too expensive to execute, denying them their payout -- see
-        `MAX_ATTEMPTS_PER_BOUNTY`'s docstring). Locks the bounty's
-        criteria/evidence requirements permanently on the FIRST accepted
-        attempt. Returns the new attempt's index within the bounty.
+        Reserve an identity before Base funding. A reservation is not an
+        adjudication attempt, does not lock criteria, and does not consume
+        the funded-attempt cap. Only the configured funding attestor can
+        activate it after independently observing the exact Base funding.
         """
         bounty = self._get_bounty(bounty_id)
 
@@ -1930,21 +1957,49 @@ parsable by a JSON parser without errors:
             raise gl.vm.UserError(
                 "Bounty deadline has already passed; it can no longer be attempted"
             )
-        if int(bounty.attempt_count) >= MAX_ATTEMPTS_PER_BOUNTY:
-            raise gl.vm.UserError(
-                f"This bounty has reached its maximum of {MAX_ATTEMPTS_PER_BOUNTY} "
-                "concurrent attempts"
-            )
-
         sender = gl.message.sender_address
         if sender == bounty.creator:
             raise gl.vm.UserError("A bounty's creator cannot also attempt their own bounty")
 
-        sent = bounty.required_bond
+        now = self._now()
+        reservation_id = self.reservation_counter
+        self.reservation_counter = self.reservation_counter + u256(1)
+        self.reservations[reservation_id] = AttemptReservation(
+            bounty_id=u256(bounty_id),
+            reservation_id=reservation_id,
+            challenger=sender,
+            status=u8(RESERVATION_PENDING),
+            created_at=u256(now),
+            funding_deadline=u256(now + FUNDING_RESERVATION_SECONDS),
+            activated_attempt_index=u256(0),
+            base_funding_tx_hash="",
+        )
+        return int(reservation_id)
 
+    @gl.public.write
+    def confirm_attempt_funding(self, bounty_id: int, reservation_id: int, base_funding_tx_hash: str) -> int:
+        """Funding-attestor-only activation after exact Base reconciliation.
+        Creates the adjudication attempt only after funding is known to exist.
+        Returns the final attempt index used by both chains."""
+        if gl.message.sender_address != self.funding_attestor:
+            raise gl.vm.UserError("Caller is not the funding attestor")
+        bounty = self._get_bounty(bounty_id)
+        key_reservation = u256(reservation_id)
+        if key_reservation not in self.reservations:
+            raise gl.vm.UserError("No such funding reservation")
+        reservation = self.reservations[key_reservation]
+        if int(reservation.bounty_id) != bounty_id or reservation.status != RESERVATION_PENDING:
+            raise gl.vm.UserError("Funding reservation is unavailable")
+        if self._now() > int(reservation.funding_deadline):
+            raise gl.vm.UserError("Funding reservation has expired")
+        if not base_funding_tx_hash or len(base_funding_tx_hash) != 66 or not base_funding_tx_hash.startswith("0x"):
+            raise gl.vm.UserError("A 32-byte Base funding transaction hash is required")
+        if bounty.status != BOUNTY_OPEN:
+            raise gl.vm.UserError("Bounty is not open for new attempts")
+        if int(bounty.attempt_count) >= MAX_ATTEMPTS_PER_BOUNTY:
+            raise gl.vm.UserError(f"This bounty has reached its maximum of {MAX_ATTEMPTS_PER_BOUNTY} funded attempts")
         if not bounty.criteria_locked:
             bounty.criteria_locked = True
-
         index = int(bounty.attempt_count)
         key = self._attempt_key(bounty_id, index)
         now = self._now()
@@ -1953,9 +2008,9 @@ parsable by a JSON parser without errors:
             attempt_key=key,
             bounty_id=u256(bounty_id),
             index=u256(index),
-            challenger=sender,
+            challenger=reservation.challenger,
             bond_amount=bounty.required_bond,
-            bond_deposited=sent,
+            bond_deposited=bounty.required_bond,
             status=u8(ATTEMPT_ACCEPTED),
             evidence_url="",
             evidence_description="",
@@ -1984,11 +2039,28 @@ parsable by a JSON parser without errors:
         )
 
         bounty.attempt_count = bounty.attempt_count + u256(1)
+        reservation.status = u8(RESERVATION_ACTIVATED)
+        reservation.activated_attempt_index = u256(index)
+        reservation.base_funding_tx_hash = base_funding_tx_hash
 
-        challenger_rep = self._get_or_create_reputation(sender)
+        challenger_rep = self._get_or_create_reputation(reservation.challenger)
         challenger_rep.attempts_made = challenger_rep.attempts_made + u256(1)
 
         return index
+
+    @gl.public.write
+    def expire_attempt_reservation(self, reservation_id: int) -> None:
+        """Permissionless cleanup. Expired reservations never consumed an
+        attempt slot, so cleanup is state hygiene rather than capacity recovery."""
+        key = u256(reservation_id)
+        if key not in self.reservations:
+            raise gl.vm.UserError("No such funding reservation")
+        reservation = self.reservations[key]
+        if reservation.status != RESERVATION_PENDING:
+            raise gl.vm.UserError("Funding reservation is not pending")
+        if self._now() <= int(reservation.funding_deadline):
+            raise gl.vm.UserError("Funding reservation has not expired")
+        reservation.status = u8(RESERVATION_EXPIRED)
 
     @gl.public.write
     def submit_evidence(
@@ -2004,7 +2076,7 @@ parsable by a JSON parser without errors:
 
         Must happen before `bounty.deadline` (audit-driven fix): the old
         version had no submission-side deadline check at all, so a
-        challenger could `accept_bounty` right before expiry and then
+        challenger could activate an attempt right before expiry and then
         submit/verify arbitrarily long afterward, making "the deadline"
         not actually bound when review activity has to happen. Verification
         itself (`request_verification`) is intentionally NOT deadline-gated
@@ -2605,6 +2677,14 @@ parsable by a JSON parser without errors:
         self.paused = paused
 
     @gl.public.write
+    def update_funding_attestor(self, new_attestor_address: Address) -> None:
+        self._require_owner()
+        new_attestor = new_attestor_address if isinstance(new_attestor_address, Address) else Address(new_attestor_address)
+        if new_attestor == self._zero_address():
+            raise gl.vm.UserError("Funding attestor must not be the zero address")
+        self.funding_attestor = new_attestor
+
+    @gl.public.write
     def transfer_ownership(self, new_owner_address: str) -> None:
         self._require_owner()
         new_owner = Address(new_owner_address)
@@ -2625,6 +2705,10 @@ parsable by a JSON parser without errors:
         return self.treasury.as_hex
 
     @gl.public.view
+    def get_funding_attestor(self) -> str:
+        return self.funding_attestor.as_hex
+
+    @gl.public.view
     def get_default_fee_bps(self) -> int:
         return int(self.default_fee_bps)
 
@@ -2637,10 +2721,37 @@ parsable by a JSON parser without errors:
         return int(self.bounty_counter)
 
     @gl.public.view
+    def get_reservation_counter(self) -> int:
+        return int(self.reservation_counter)
+
+    @gl.public.view
     def get_contract_balance(self) -> int:
         """Compatibility view. This adjudication contract is non-payable and
         intentionally holds no funds; Base Sepolia escrow is authoritative."""
         return 0
+
+    @gl.public.view
+    def get_attempt_reservation(self, reservation_id: int) -> dict:
+        key = u256(reservation_id)
+        if key not in self.reservations:
+            raise gl.vm.UserError("No such funding reservation")
+        r = self.reservations[key]
+        labels = {
+            RESERVATION_PENDING: "PENDING_FUNDING",
+            RESERVATION_ACTIVATED: "ACTIVATED",
+            RESERVATION_EXPIRED: "EXPIRED",
+        }
+        return {
+            "bounty_id": int(r.bounty_id),
+            "reservation_id": int(r.reservation_id),
+            "challenger": r.challenger.as_hex,
+            "status": int(r.status),
+            "status_label": labels.get(int(r.status), "UNKNOWN"),
+            "created_at": int(r.created_at),
+            "funding_deadline": int(r.funding_deadline),
+            "activated_attempt_index": int(r.activated_attempt_index),
+            "base_funding_tx_hash": r.base_funding_tx_hash,
+        }
 
     @gl.public.view
     def get_bounty(self, bounty_id: int) -> dict:

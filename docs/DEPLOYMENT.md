@@ -1,8 +1,8 @@
 # Deployment
 
 > The USDC milestone supersedes the legacy addresses and GEN custody steps
-> below. Current GenLayer: `0x8566beF0B3507415F29229a9D9A26BF41a9cA505`.
-> Current Base Sepolia escrow: `0x6DC21933ec3D013542185482850C96c753d10cfc`.
+> below. Current GenLayer: `0x9482012290132518c88D967623A15C3DDD0d247E`.
+> Current Base Sepolia escrow: `0xA99384bc4e6c045bBFD239Bbc9297a5C144AF711`.
 > Current backend: `https://proofbounty-usdc-api.fly.dev` (`proofbounty-usdc-api`).
 > Use [`../MILESTONE-USDC.md`](../MILESTONE-USDC.md) as the authoritative
 > production runbook while the historical deployment narrative is retained.
@@ -75,8 +75,8 @@ Production environment variables (set via `vercel env add ... production`):
 
 | Variable | Value |
 |---|---|
-| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | `0x8566beF0B3507415F29229a9D9A26BF41a9cA505` |
-| `NEXT_PUBLIC_BASE_ESCROW_ADDRESS` | `0x6DC21933ec3D013542185482850C96c753d10cfc` |
+| `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | `0x9482012290132518c88D967623A15C3DDD0d247E` |
+| `NEXT_PUBLIC_BASE_ESCROW_ADDRESS` | `0xA99384bc4e6c045bBFD239Bbc9297a5C144AF711` |
 | `NEXT_PUBLIC_BASE_USDC_ADDRESS` | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | `NEXT_PUBLIC_GENLAYER_NETWORK` | `studionet` |
 | `NEXT_PUBLIC_GENLAYER_RPC_URL` | `https://studio.genlayer.com/api` |
@@ -109,7 +109,7 @@ Secrets (set via `fly secrets set ... --app proofbounty-usdc-api`):
 | Secret | Notes |
 |---|---|
 | `DATABASE_URL` | Auto-set by `fly postgres attach` |
-| `PROOFBOUNTY_CONTRACT_ADDRESS` | `0x8566beF0B3507415F29229a9D9A26BF41a9cA505` |
+| `PROOFBOUNTY_CONTRACT_ADDRESS` | `0x9482012290132518c88D967623A15C3DDD0d247E` |
 | `BASE_RELAYER_PRIVATE_KEY` | Base transaction signer; encrypted Fly secret |
 | `BASE_DECISION_SIGNER_PRIVATE_KEY` | Independent EIP-712 decision signer; encrypted Fly secret |
 

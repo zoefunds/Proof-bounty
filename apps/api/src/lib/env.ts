@@ -26,6 +26,7 @@ const envSchema = z.object({
   BASE_ESCROW_ADDRESS: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional(),
   BASE_RELAYER_PRIVATE_KEY: z.string().regex(/^(0x)?[0-9a-fA-F]{64}$/).optional(),
   BASE_DECISION_SIGNER_PRIVATE_KEY: z.string().regex(/^(0x)?[0-9a-fA-F]{64}$/).optional(),
+  GENLAYER_FUNDING_ATTESTOR_PRIVATE_KEY: z.string().regex(/^(0x)?[0-9a-fA-F]{64}$/).optional(),
   BASE_RELAY_INTERVAL_MS: z.coerce.number().default(120_000),
 });
 

@@ -23,6 +23,16 @@ contract ProofBountyEscrow {
         address genlayerContract;
         bool registered;
         bool rewardSettled;
+        uint256 decisionNonce;
+    }
+
+    struct PendingAttempt {
+        address challenger;
+        uint256 bond;
+        uint64 fundedAt;
+        uint64 authorizationExpiry;
+        bool bound;
+        bool recovered;
     }
 
     struct Attempt {
@@ -31,6 +41,7 @@ contract ProofBountyEscrow {
         uint256 appealBond;
         address appealPayer;
         bool settled;
+        uint256 reservationId;
     }
 
     IERC20 public immutable usdc;
@@ -42,6 +53,7 @@ contract ProofBountyEscrow {
 
     uint256 public constant BPS = 10_000;
     uint256 public constant ORPHAN_DELAY = 7 days;
+    uint256 public constant PENDING_ATTEMPT_RECOVERY_DELAY = 1 days;
     uint256 private constant SECP256K1_HALF_ORDER =
         0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
     bytes32 private constant DOMAIN_TYPEHASH = keccak256(
@@ -51,13 +63,20 @@ contract ProofBountyEscrow {
         "Register(uint256 bountyId,address creator,uint256 reward,uint256 requiredBond,uint16 feeBps,address genlayerContract)"
     );
     bytes32 private constant SETTLE_TYPEHASH = keccak256(
-        "Settle(uint256 bountyId,uint256 attemptIndex,uint8 outcome,uint16 payoutBps,address recipient,address appealRecipient,bytes32 decisionHash)"
+        "Settle(uint256 bountyId,uint256 attemptIndex,uint8 outcome,uint16 payoutBps,address recipient,address appealRecipient,bytes32 genlayerStateHash,uint256 decisionNonce,uint64 validAfter,uint64 validBefore)"
+    );
+    bytes32 private constant FUND_ATTEMPT_TYPEHASH = keccak256(
+        "FundAttempt(uint256 bountyId,uint256 reservationId,address challenger,uint256 bond,address genlayerContract,uint64 authorizationExpiry)"
+    );
+    bytes32 private constant BIND_ATTEMPT_TYPEHASH = keccak256(
+        "BindAttempt(uint256 bountyId,uint256 reservationId,uint256 attemptIndex,address challenger,bytes32 baseFundingTxHash)"
     );
     bytes32 private constant ORPHAN_TYPEHASH = keccak256(
         "Orphan(uint256 bountyId,address creator,uint256 reward)"
     );
 
     mapping(uint256 => Bounty) public bounties;
+    mapping(uint256 => mapping(uint256 => PendingAttempt)) public pendingAttempts;
     mapping(uint256 => mapping(uint256 => Attempt)) public attempts;
     mapping(address => uint256) public claimable;
     mapping(bytes32 => bool) public consumedDecisions;
@@ -65,6 +84,9 @@ contract ProofBountyEscrow {
     event BountyFunded(uint256 indexed bountyId, address indexed creator, uint256 reward, uint256 requiredBond);
     event BountyRegistered(uint256 indexed bountyId, address indexed genlayerContract);
     event AttemptFunded(uint256 indexed bountyId, uint256 indexed attemptIndex, address indexed challenger, uint256 bond);
+    event AttemptFundingReserved(uint256 indexed bountyId, uint256 indexed reservationId, address indexed challenger, uint256 bond, uint64 authorizationExpiry);
+    event AttemptBound(uint256 indexed bountyId, uint256 indexed reservationId, uint256 indexed attemptIndex, address challenger, bytes32 baseFundingTxHash);
+    event PendingAttemptRecovered(uint256 indexed bountyId, uint256 indexed reservationId, address indexed challenger, uint256 amount);
     event AppealFunded(uint256 indexed bountyId, uint256 indexed attemptIndex, address indexed appellant, uint256 bond);
     event DecisionExecuted(uint256 indexed bountyId, uint256 indexed attemptIndex, Outcome outcome, bytes32 decisionHash);
     event Claimed(address indexed account, uint256 amount);
@@ -121,17 +143,73 @@ contract ProofBountyEscrow {
         emit BountyRegistered(bountyId, genlayerContract);
     }
 
-    function fundAttempt(uint256 bountyId, uint256 attemptIndex) external nonReentrant {
+    /// Fund a GenLayer reservation. The independent decision signer must
+    /// authorize the exact challenger, reservation, terms, and expiry, so a
+    /// third party cannot squat a future attempt index.
+    function fundAttempt(
+        uint256 bountyId,
+        uint256 reservationId,
+        uint64 authorizationExpiry,
+        bytes calldata authorization
+    ) external nonReentrant {
         Bounty storage b = bounties[bountyId];
         require(b.registered && !b.rewardSettled, "ProofBounty: bounty unavailable");
-        Attempt storage a = attempts[bountyId][attemptIndex];
-        require(a.challenger == address(0), "ProofBounty: attempt funded");
+        require(block.timestamp <= authorizationExpiry, "ProofBounty: funding authorization expired");
+        PendingAttempt storage p = pendingAttempts[bountyId][reservationId];
+        require(p.challenger == address(0), "ProofBounty: reservation funded");
+        bytes32 instruction = keccak256(abi.encode(
+            FUND_ATTEMPT_TYPEHASH, bountyId, reservationId, msg.sender,
+            b.requiredBond, b.genlayerContract, authorizationExpiry
+        ));
+        require(_isAuthorized(instruction, authorization), "ProofBounty: bad funding authorization");
         if (b.requiredBond > 0) {
             require(usdc.transferFrom(msg.sender, address(this), b.requiredBond), "ProofBounty: transferFrom failed");
         }
-        a.challenger = msg.sender;
-        a.bond = b.requiredBond;
-        emit AttemptFunded(bountyId, attemptIndex, msg.sender, b.requiredBond);
+        p.challenger = msg.sender;
+        p.bond = b.requiredBond;
+        p.fundedAt = uint64(block.timestamp);
+        p.authorizationExpiry = authorizationExpiry;
+        emit AttemptFundingReserved(bountyId, reservationId, msg.sender, b.requiredBond, authorizationExpiry);
+    }
+
+    /// Bind a funded reservation to the exact finalized GenLayer attempt.
+    /// The relay submits and the independent signer authorizes the observed
+    /// Base funding transaction hash and challenger identity.
+    function bindAttempt(
+        uint256 bountyId,
+        uint256 reservationId,
+        uint256 attemptIndex,
+        bytes32 baseFundingTxHash,
+        bytes calldata authorization
+    ) external onlyRelayer {
+        require(baseFundingTxHash != bytes32(0), "ProofBounty: missing funding tx");
+        Bounty storage b = bounties[bountyId];
+        PendingAttempt storage p = pendingAttempts[bountyId][reservationId];
+        Attempt storage a = attempts[bountyId][attemptIndex];
+        require(b.registered && !b.rewardSettled, "ProofBounty: bounty unavailable");
+        require(p.challenger != address(0) && !p.bound && !p.recovered, "ProofBounty: reservation unavailable");
+        require(a.challenger == address(0), "ProofBounty: attempt already bound");
+        bytes32 instruction = keccak256(abi.encode(
+            BIND_ATTEMPT_TYPEHASH, bountyId, reservationId, attemptIndex, p.challenger, baseFundingTxHash
+        ));
+        require(_isAuthorized(instruction, authorization), "ProofBounty: bad bind authorization");
+        p.bound = true;
+        a.challenger = p.challenger;
+        a.bond = p.bond;
+        a.reservationId = reservationId;
+        emit AttemptBound(bountyId, reservationId, attemptIndex, p.challenger, baseFundingTxHash);
+        emit AttemptFunded(bountyId, attemptIndex, p.challenger, p.bond);
+    }
+
+    /// If the relay/attestor is unavailable, an unbound reservation becomes
+    /// recoverable by its challenger without any privileged signature.
+    function recoverPendingAttempt(uint256 bountyId, uint256 reservationId) external nonReentrant {
+        PendingAttempt storage p = pendingAttempts[bountyId][reservationId];
+        require(msg.sender == p.challenger && !p.bound && !p.recovered, "ProofBounty: recovery unavailable");
+        require(block.timestamp >= uint256(p.authorizationExpiry) + PENDING_ATTEMPT_RECOVERY_DELAY, "ProofBounty: recovery delay");
+        p.recovered = true;
+        claimable[msg.sender] += p.bond;
+        emit PendingAttemptRecovered(bountyId, reservationId, msg.sender, p.bond);
     }
 
     function fundAppeal(uint256 bountyId, uint256 attemptIndex) external nonReentrant {
@@ -154,21 +232,28 @@ contract ProofBountyEscrow {
         uint16 payoutBps,
         address recipient,
         address appealRecipient,
-        bytes32 decisionHash,
+        bytes32 genlayerStateHash,
+        uint256 decisionNonce,
+        uint64 validAfter,
+        uint64 validBefore,
         bytes calldata authorization
     ) external onlyRelayer {
         require(outcomeCode >= uint8(Outcome.Winner) && outcomeCode <= uint8(Outcome.BountyRefund), "ProofBounty: bad outcome");
-        require(decisionHash != bytes32(0) && !consumedDecisions[decisionHash], "ProofBounty: decision consumed");
+        require(genlayerStateHash != bytes32(0) && !consumedDecisions[genlayerStateHash], "ProofBounty: decision consumed");
         require(recipient != address(0) && payoutBps <= BPS, "ProofBounty: bad instruction");
+        require(validAfter <= block.timestamp && block.timestamp <= validBefore, "ProofBounty: decision outside validity window");
+        Bounty storage b = bounties[bountyId];
+        require(decisionNonce == b.decisionNonce + 1, "ProofBounty: stale decision nonce");
         bytes32 instruction = keccak256(abi.encode(
-            SETTLE_TYPEHASH, bountyId, attemptIndex, outcomeCode, payoutBps, recipient, appealRecipient, decisionHash
+            SETTLE_TYPEHASH, bountyId, attemptIndex, outcomeCode, payoutBps, recipient,
+            appealRecipient, genlayerStateHash, decisionNonce, validAfter, validBefore
         ));
         require(_isAuthorized(instruction, authorization), "ProofBounty: bad authorization");
 
-        Bounty storage b = bounties[bountyId];
         require(b.registered, "ProofBounty: unregistered");
         Outcome outcome = Outcome(outcomeCode);
-        consumedDecisions[decisionHash] = true;
+        consumedDecisions[genlayerStateHash] = true;
+        b.decisionNonce = decisionNonce;
 
         if (outcome == Outcome.Winner) {
             Attempt storage a = attempts[bountyId][attemptIndex];
@@ -198,15 +283,13 @@ contract ProofBountyEscrow {
             claimable[recipient] += a.bond;
             _allocateAppeal(a, appealRecipient);
         }
-        emit DecisionExecuted(bountyId, attemptIndex, outcome, decisionHash);
+        emit DecisionExecuted(bountyId, attemptIndex, outcome, genlayerStateHash);
     }
 
-    function recoverOrphanBounty(uint256 bountyId, bytes calldata authorization) external nonReentrant {
+    function recoverOrphanBounty(uint256 bountyId) external nonReentrant {
         Bounty storage b = bounties[bountyId];
         require(msg.sender == b.creator && !b.registered && !b.rewardSettled, "ProofBounty: recovery unavailable");
         require(block.timestamp >= uint256(b.fundedAt) + ORPHAN_DELAY, "ProofBounty: recovery delay");
-        bytes32 instruction = keccak256(abi.encode(ORPHAN_TYPEHASH, bountyId, b.creator, b.reward));
-        require(_isAuthorized(instruction, authorization), "ProofBounty: bad authorization");
         b.rewardSettled = true;
         claimable[msg.sender] += b.reward;
         emit OrphanRecovered(bountyId, msg.sender, b.reward);
