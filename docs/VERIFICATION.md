@@ -9,18 +9,18 @@ Postgres index/cache was cleared after the cutover; live health reports
 
 ## Deployed components
 
-- GenLayer adjudication: `0x7942320C375529B8fB2E53F4e5a4d901a1c5cB94`
-- Base Sepolia escrow: `0x71A6C9f3eA9026009b51463013743e4781F327c9`
+- GenLayer adjudication: `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2`
+- Base Sepolia escrow: `0xFC271817DA30f1BEf651ef5BacDd1a37127f0976`
 - Base Sepolia USDC: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
 - Frontend: <https://proof-bounty.vercel.app>
 - API/relay: <https://proofbounty-usdc-api.fly.dev>
 
 The Base deployment transaction is
-`0xe460458d84e3ee662ff61af8b91755e3ac15e6273b1c53ed12b6e1bf27c5ab44`.
+`0x82d5abb6d8e9d2e9a88ebaa0a66f98d2e11ac57a93430c0564642591e0883235`.
 The GenLayer deployment transaction is
-`0x904cc24d0df9d8504027d7cdfa97797df9d775d887c596bcd20090b7e386514e`.
+`0x27f25577a43754f9609f323708e8791612c67eb440be95521abf8ff974a110d7`.
 The funding-attestor configuration transaction is
-`0xf1eb89f2039b33c779e2180e0d61cef1259e09713bafef1bc0a382574a5ea8e0`.
+`0x51fbf29599fbfe90ceead96518c80c87d58511b382c86b99251fdffd8ce68209`.
 
 Live reads on the current deployment report GenLayer bounty count `0`, contract
 balance `0`, and fee `250`. Base getters resolve to the USDC, relayer, decision
@@ -39,7 +39,7 @@ gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
 (cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
 ```
 
-The 14-test Foundry suite includes the complete Base flow: identity-authorized funding,
+The 15-test Foundry suite includes the complete Base flow: identity-authorized funding,
 reservation binding, nonce- and time-bound settlement, recipient accounting,
 and pull claim. It also exercises index squatting, mismatched identities,
 unauthorized binding, stale/conflicting/expired decisions, replay, and both
@@ -51,9 +51,11 @@ GenLayer attempt had already activated.
 The appeal-integrity regressions prove that zero-bond appeals settle without a
 deposit, positive-bond appeals cannot resolve after funding verification but
 before binding attestation, unauthorized attestors cannot activate them,
-partially activated reservations expire and financially reconcile safely, and
-a properly funded and Base-bound appeal pays the finalized recipient. Five
-backend tests reject missing, unbound, and mismatched positive collateral.
+partially activated and already-bound reservations expire and financially
+reconcile safely without stranded bonds or permanent settlement deferral, and
+a properly funded and Base-bound appeal pays the finalized recipient. Seven
+backend tests reject missing, unbound, and mismatched collateral, defer while a
+bound orphan exists, and resume after its explicit recovery.
 
 The direct GenLayer tests demonstrate that arbitrary unfunded reservations do
 not consume the funded-attempt cap and that only the configured funding
@@ -63,7 +65,7 @@ attestor can activate a reservation.
 linter's combined `check` command cannot currently retrieve the historical
 pinned SDK tarball from its own artifact registry; that tool-distribution
 failure is not hidden as a source failure. Executable semantics are covered by
-the five passing offline `gltest.direct` cases and by the finalized StudioNet
+the six passing offline `gltest.direct` cases and by the finalized StudioNet
 deployment and transactions above.
 
 ## CI availability

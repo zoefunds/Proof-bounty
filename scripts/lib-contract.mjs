@@ -1,6 +1,6 @@
 import { createClient, chains } from "genlayer-js";
 
-export const CONTRACT_ADDRESS = "0x7942320C375529B8fB2E53F4e5a4d901a1c5cB94";
+export const CONTRACT_ADDRESS = "0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2";
 
 // Verified against genlayer-js's own bundled enum
 // (node_modules/genlayer-js/dist/chunk-EY35NPSE.js, transactionsStatusNumberToName)

@@ -44,6 +44,7 @@ contract ProofBountyEscrow {
         uint256 reservationId;
         uint64 appealAuthorizationExpiry;
         bool appealBound;
+        bool appealRecovered;
     }
 
     IERC20 public immutable usdc;
@@ -283,14 +284,19 @@ contract ProofBountyEscrow {
         emit AppealBound(bountyId, attemptIndex, a.appealPayer, baseFundingTxHash);
     }
 
-    /// A Base deposit that never activated a GenLayer appeal remains
-    /// recoverable by its payer without privileged service availability.
+    /// An appeal deposit that did not reach a financially settled outcome is
+    /// recoverable without privileged service availability. Bound deposits use
+    /// the longer orphan delay so the relay/attestor has ample time to finish;
+    /// settlement recognizes the explicit recovered flag and never fabricates
+    /// a missing appeal allocation.
     function recoverUnactivatedAppeal(uint256 bountyId, uint256 attemptIndex) external nonReentrant {
         Attempt storage a = attempts[bountyId][attemptIndex];
-        require(msg.sender == a.appealPayer && a.appealBond > 0 && !a.appealBound && !a.settled, "ProofBounty: appeal recovery unavailable");
-        require(block.timestamp >= uint256(a.appealAuthorizationExpiry) + PENDING_ATTEMPT_RECOVERY_DELAY, "ProofBounty: appeal recovery delay");
+        require(msg.sender == a.appealPayer && a.appealBond > 0 && !a.settled && !a.appealRecovered, "ProofBounty: appeal recovery unavailable");
+        uint256 delay = a.appealBound ? ORPHAN_DELAY : PENDING_ATTEMPT_RECOVERY_DELAY;
+        require(block.timestamp >= uint256(a.appealAuthorizationExpiry) + delay, "ProofBounty: appeal recovery delay");
         uint256 amount = a.appealBond;
         a.appealBond = 0;
+        a.appealRecovered = true;
         claimable[msg.sender] += amount;
         emit UnactivatedAppealRecovered(bountyId, attemptIndex, msg.sender, amount);
     }

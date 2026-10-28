@@ -1170,8 +1170,9 @@ def test_abandoned_appeal_funding_expires_without_permanent_lock_is_a_safe_noop(
     contract.expire_appeal_funding(0, 0)
     expired = contract.get_attempt(0, 0)
     assert expired["status_label"] == "ARBITER_RESOLVED_PENDING_APPEAL"
-    assert expired["appealed_by"].lower() == ZERO_ADDRESS
+    assert expired["appealed_by"].lower() == ("0x" + challenger.hex()).lower()
     assert expired["appeal_bond_deposited"] == 0
+    assert expired["appeal_base_funding_tx_hash"] == "0x" + "cd" * 32
 
 
 # ============================================================================

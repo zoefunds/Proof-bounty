@@ -144,7 +144,8 @@ export function AttemptCard({
     now <= attempt.appeal_funding_deadline;
   const canExpireAppealFunding = attempt.status_label === "APPEAL_PENDING_FUNDING" && now > attempt.appeal_funding_deadline;
   const canRecoverUnactivatedAppeal = address?.toLowerCase() === attempt.appealed_by.toLowerCase() &&
-    attempt.status_label === "APPEAL_PENDING_FUNDING" && now >= attempt.appeal_funding_deadline + 24 * 60 * 60;
+    attempt.appeal_funding_deadline > 0 && now >= attempt.appeal_funding_deadline + 7 * 24 * 60 * 60 &&
+    ["APPEAL_PENDING_FUNDING", "APPEAL_FUNDED_PENDING_BINDING", "ARBITER_RESOLVED_PENDING_APPEAL"].includes(attempt.status_label);
   const canFinalize = appealWindowClosed; // permissionless — anyone may call
 
   async function handleSubmitEvidence() {

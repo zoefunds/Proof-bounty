@@ -71,8 +71,11 @@ Positive-bond appeals enter a two-hour `APPEAL_PENDING_FUNDING` reservation.
 Deposit verification advances them only to `APPEAL_FUNDED_PENDING_BINDING`.
 They cannot run the second consensus review until the relay binds that deposit
 and the attestor confirms the binding back to GenLayer. An abandoned reservation
-expires back to the underlying pending ruling, and an unactivated Base deposit
-is recoverable by its payer. Zero-bond appeals activate immediately.
+expires back to the underlying pending ruling. Unbound Base deposits recover
+after one day. A Base-bound deposit caught in the expiry race defers core
+settlement until its payer recovers it after seven days; the explicit recovered
+flag then permits core settlement without an appeal allocation. Zero-bond
+appeals activate immediately.
 
 ## Settlement state machine
 

@@ -95,10 +95,13 @@ fresh GenLayer read identifies the pending appellant. A positive-bond appeal
 cannot run its consensus review when funding is merely verified: it first
 enters `APPEAL_FUNDED_PENDING_BINDING`. The relay binds the deposit on Base,
 then the attestor confirms that non-recoverable binding back to GenLayer before
-the state becomes `APPEALED`. Unfunded or unbound reservations expire after
-two hours, restoring the ordinary finalization path. A deposited but
-unactivated bond is recoverable by its payer after the Base delay. Zero-bond
-appeals require no Base funding and activate immediately.
+the state becomes `APPEALED`. Pending-binding reservations expire after two
+hours, restoring the ordinary finalization path while retaining recovery
+metadata. Unbound deposits recover after one day. If Base binding won the race
+but final GenLayer attestation did not, core settlement defers while the bond
+exists; after seven days the payer recovers it permissionlessly, the explicit
+`appealRecovered` flag authorizes omission of that nonexistent allocation, and
+core settlement continues. Zero-bond appeals activate immediately.
 
 The frontend stores the original `AppealFunded` transaction hash in local
 storage before requesting either attestation. Interrupted confirmations reuse
@@ -117,4 +120,4 @@ cd ../web && npm ci && npm run lint && npx tsc --noEmit && npm run build
 `testEndToEndFundBindSettleAndRecipientClaim` covers the complete Base custody
 path. Dedicated tests also cover zero-bond appeal settlement and claims,
 positive attested appeal funding and claims, rejection of unbound collateral,
-and safe expiry/recovery of abandoned funding.
+and both unbound and bound-expiry recovery with eventual core settlement.

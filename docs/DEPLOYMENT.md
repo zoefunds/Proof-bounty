@@ -4,8 +4,8 @@
 
 | Component | Value |
 |---|---|
-| GenLayer StudioNet | `0x7942320C375529B8fB2E53F4e5a4d901a1c5cB94` |
-| Base Sepolia escrow | `0x71A6C9f3eA9026009b51463013743e4781F327c9` |
+| GenLayer StudioNet | `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2` |
+| Base Sepolia escrow | `0xFC271817DA30f1BEf651ef5BacDd1a37127f0976` |
 | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | Frontend | <https://proof-bounty.vercel.app> |
 | Fly app | `proofbounty-usdc-api` |

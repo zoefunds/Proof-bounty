@@ -2543,11 +2543,10 @@ parsable by a JSON parser without errors:
         if self._now() <= int(attempt.appeal_funding_deadline):
             raise gl.vm.UserError("Appeal funding reservation has not expired")
         attempt.status = u8(ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL)
-        attempt.appealed_by = self._zero_address()
-        attempt.appeal_reason = ""
+        # Retain appellant/deadline/hash strictly as cross-chain recovery
+        # metadata. They grant no appeal rights in this status, and new funding
+        # authorization requires APPEAL_PENDING_FUNDING.
         attempt.appeal_bond_deposited = u256(0)
-        attempt.appeal_funding_deadline = u256(0)
-        attempt.appeal_base_funding_tx_hash = ""
 
     def _settle_via_second_consensus(
         self, bounty_id: int, attempt_index: int, bounty: Bounty, attempt: "Attempt",

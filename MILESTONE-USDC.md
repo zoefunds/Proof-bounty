@@ -7,8 +7,8 @@ authoritative description of the current payment boundary.
 
 | Layer | Network | Address | Responsibility |
 |---|---|---|---|
-| Adjudication | GenLayer StudioNet | `0x7942320C375529B8fB2E53F4e5a4d901a1c5cB94` | Evidence fetch, validator consensus, disputes, final state |
-| Payments | Base Sepolia | `0x71A6C9f3eA9026009b51463013743e4781F327c9` | USDC custody, allocation, pull claims |
+| Adjudication | GenLayer StudioNet | `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2` | Evidence fetch, validator consensus, disputes, final state |
+| Payments | Base Sepolia | `0xFC271817DA30f1BEf651ef5BacDd1a37127f0976` | USDC custody, allocation, pull claims |
 | Token | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | Six-decimal settlement asset |
 
 ## Live applications
@@ -51,8 +51,9 @@ adversarial tests.
   `APPEAL_FUNDED_PENDING_BINDING` after deposit verification. Base binding
   makes the deposit non-recoverable, and only a second attestation then
   activates consensus-review rights. Abandoned reservations expire after two
-  hours; unactivated deposits are recoverable. Zero-bond appeals require no
-  Base appeal transaction.
+  hours. Unbound deposits recover after one day; bound-but-expired deposits
+  recover after seven days, after which settlement proceeds without inventing
+  an appeal allocation. Zero-bond appeals require no Base transaction.
 - A recovered reservation remains bindable if GenLayer activation had already
   succeeded. Its Base bond is zeroed after compensation, preserving reward
   settlement without paying the bond twice.
@@ -91,11 +92,11 @@ does not block GenLayer adjudication; the next sweep retries idempotently.
 
 ## Verification completed
 
-- `forge test`: 14/14 Base escrow adversarial and end-to-end tests pass.
-- Backend appeal reconciliation tests: 5/5 pass.
+- `forge test`: 15/15 Base escrow adversarial and end-to-end tests pass.
+- Backend appeal reconciliation tests: 7/7 pass.
 - API TypeScript build and Prisma generation pass.
 - Web TypeScript and ESLint pass.
-- Selected offline GenLayer dispute/appeal adjudication tests: 5/5 pass.
+- Selected offline GenLayer dispute/appeal adjudication tests: 6/6 pass.
 - Live reads on the fresh corrected GenLayer deployment: counter `0`, contract
   balance `0`, and fee `250`; schema reports non-payable write methods.
 - Live Base reads confirm USDC, owner, relayer, decision signer, treasury, and

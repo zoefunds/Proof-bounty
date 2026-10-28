@@ -8,7 +8,7 @@ const ZERO = "0x0000000000000000000000000000000000000000";
 const ABI = [
   "function bounties(uint256) view returns (address creator,uint256 reward,uint256 requiredBond,uint16 feeBps,uint64 fundedAt,address genlayerContract,bool registered,bool rewardSettled,uint256 decisionNonce)",
   "function pendingAttempts(uint256,uint256) view returns (address challenger,uint256 bond,uint64 fundedAt,uint64 authorizationExpiry,bool bound,bool recovered)",
-  "function attempts(uint256,uint256) view returns (address challenger,uint256 bond,uint256 appealBond,address appealPayer,bool settled,uint256 reservationId,uint64 appealAuthorizationExpiry,bool appealBound)",
+  "function attempts(uint256,uint256) view returns (address challenger,uint256 bond,uint256 appealBond,address appealPayer,bool settled,uint256 reservationId,uint64 appealAuthorizationExpiry,bool appealBound,bool appealRecovered)",
   "function registerBounty(uint256 bountyId,address genlayerContract,bytes authorization)",
   "function bindAttempt(uint256 bountyId,uint256 reservationId,uint256 attemptIndex,bytes32 baseFundingTxHash,bytes authorization)",
   "function bindAppeal(uint256 bountyId,uint256 attemptIndex,bytes32 baseFundingTxHash,bytes authorization)",
@@ -209,7 +209,9 @@ export async function relayBaseOnce(logger: Logger) {
             requiredBond: base.requiredBond,
             fundedBond: baseAttempt.appealBond,
             appealBound: baseAttempt.appealBound,
+            appealRecovered: baseAttempt.appealRecovered,
           });
+          if (appealPlan.defer) continue;
           const appealRecipient = appealPlan.appealRecipient;
           await execute(escrow, signer, domain, base, cached.bountyId, cachedAttempt.attemptIndex, outcome, payout, recipient, appealRecipient, fresh.status_label, fresh);
           base = await escrow.bounties(cached.bountyId);

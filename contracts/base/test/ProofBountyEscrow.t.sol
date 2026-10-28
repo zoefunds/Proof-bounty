@@ -123,7 +123,7 @@ contract ProofBountyEscrowTest {
         vm.prank(CHALLENGER); escrow.fundAttempt(5, 50, expiry, challengerAuth);
         bytes32 fundingTx = keccak256("funding-50");
         vm.prank(RELAYER); escrow.bindAttempt(5, 50, 0, fundingTx, _bindSig(5, 50, 0, CHALLENGER, fundingTx));
-        (address bound,,,,,uint256 reservationId,,) = escrow.attempts(5, 0);
+        (address bound,,,,,uint256 reservationId,,,) = escrow.attempts(5, 0);
         require(bound == CHALLENGER && reservationId == 50, "wrong binding");
     }
 
@@ -146,7 +146,7 @@ contract ProofBountyEscrowTest {
         vm.prank(CHALLENGER); escrow.recoverPendingAttempt(61, 610);
         bytes32 fundingTx = keccak256("activated-before-recovery");
         vm.prank(RELAYER); escrow.bindAttempt(61, 610, 0, fundingTx, _bindSig(61, 610, 0, CHALLENGER, fundingTx));
-        (,uint256 boundBond,,,,,,) = escrow.attempts(61, 0);
+        (,uint256 boundBond,,,,,,,) = escrow.attempts(61, 0);
         require(boundBond == 0, "recovered bond rebound");
         bytes32 state = keccak256("winner-after-reconciliation");
         vm.prank(RELAYER); escrow.executeDecision(61, 0, 1, 10_000, CHALLENGER, address(0), state, 1, 0, type(uint64).max, _settleSig(61, 0, 1, 10_000, CHALLENGER, address(0), state, 1, 0, type(uint64).max));
@@ -213,6 +213,26 @@ contract ProofBountyEscrowTest {
         bytes32 reconciled = keccak256("reconciled-after-partial-activation");
         vm.prank(RELAYER); escrow.executeDecision(65, 0, 2, 0, CHALLENGER, address(0), reconciled, 1, 0, type(uint64).max, _settleSig(65, 0, 2, 0, CHALLENGER, address(0), reconciled, 1, 0, type(uint64).max));
         require(escrow.claimable(CHALLENGER) == BOND * 2, "original and recovered appeal bonds not reconciled");
+    }
+
+    function testBoundAppealExpiredOnGenLayerRecoversAndCoreSettlementProceeds() public {
+        _fundAndRegister(66);
+        _fundAndBindAttempt(66, 660, 0, CHALLENGER);
+        uint64 expiry = uint64(block.timestamp + 10 minutes);
+        _fundAndBindAppeal(66, 0, CHALLENGER, expiry);
+
+        // Models Base binding succeeding while the final GenLayer binding
+        // attestation fails. GenLayer later expires FUNDED_PENDING_BINDING.
+        vm.warp(uint256(expiry) + 1 days);
+        vm.prank(CHALLENGER); vm.expectRevert(); escrow.recoverUnactivatedAppeal(66, 0);
+        vm.warp(uint256(expiry) + 7 days);
+        vm.prank(CHALLENGER); escrow.recoverUnactivatedAppeal(66, 0);
+
+        bytes32 reconciled = keccak256("bound-expired-recovered");
+        vm.prank(RELAYER); escrow.executeDecision(66, 0, 2, 0, CHALLENGER, address(0), reconciled, 1, 0, type(uint64).max, _settleSig(66, 0, 2, 0, CHALLENGER, address(0), reconciled, 1, 0, type(uint64).max));
+        require(escrow.claimable(CHALLENGER) == BOND * 2, "bound expiry recovery stranded funds");
+        (,,uint256 appealBond,,,,,,bool recovered) = escrow.attempts(66, 0);
+        require(appealBond == 0 && recovered, "recovery state not explicit");
     }
 
     function testStaleAndConflictingSettlementInstructionsFail() public {

@@ -10,8 +10,8 @@ six-decimal USDC. GenLayer never holds tokens.
 |---|---|
 | Frontend | <https://proof-bounty.vercel.app> |
 | API, indexer, and relay | <https://proofbounty-usdc-api.fly.dev> |
-| GenLayer StudioNet adjudication | `0x7942320C375529B8fB2E53F4e5a4d901a1c5cB94` |
-| Base Sepolia escrow | `0x71A6C9f3eA9026009b51463013743e4781F327c9` |
+| GenLayer StudioNet adjudication | `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2` |
+| Base Sepolia escrow | `0xFC271817DA30f1BEf651ef5BacDd1a37127f0976` |
 | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | Base chain ID | `84532` |
 
@@ -56,8 +56,9 @@ attempts become `LOST_RACE` and can recover their bonds.
 - Appeal funding is authorized only for the finalized GenLayer appellant.
 - Positive-bond appeals remain pending and non-resolvable while the attestor
   verifies the Base deposit and the relay binds it; a second attestation only
-  then activates consensus-review rights. Abandoned
-  reservations expire after two hours; unactivated deposits are recoverable.
+  then activates consensus-review rights. Abandoned reservations expire after
+  two hours. Unbound deposits recover after one day; bound-but-expired deposits
+  recover after seven days and are explicitly waived from later allocation.
   Zero-bond appeals activate immediately without a nonexistent deposit.
 - The frontend persists the original Base appeal-funding transaction hash and
   retries reconciliation after reloads or interrupted confirmations.
@@ -102,8 +103,8 @@ gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
 (cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
 ```
 
-Current results: Foundry 14/14, backend appeal reconciliation 5/5, selected
-deterministic GenLayer direct tests 5/5, backend build passing, and frontend
+Current results: Foundry 15/15, backend appeal reconciliation 7/7, selected
+deterministic GenLayer direct tests 6/6, backend build passing, and frontend
 production build passing. GitHub
 Actions contains these jobs, but GitHub currently refuses to start runners
 because the repository owner's account is billing-locked.

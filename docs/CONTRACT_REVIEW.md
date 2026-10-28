@@ -31,7 +31,7 @@
 | Recovery after GenLayer activation cannot strand the winner | recovered reservation remains bindable with bond zeroed to prevent double payment | `testActivatedAttemptCanBindAfterRecoveryWithoutDoubleBond` |
 | Third parties cannot occupy an appeal-bond slot | EIP-712 `FundAppeal` binds finalized appellant, attempt, bond, contract, and expiry | `testAppealFundingRequiresEligibleAppellantAuthorization` |
 | Positive-bond appeals cannot bypass collateral | verified funding remains non-resolvable until Base binding is attested back to GenLayer | GenLayer two-attestation and backend reconciliation tests |
-| Partial activation cannot freeze settlement | unbound funding never reaches `APPEALED`; it can expire, recover, and then settle the underlying position | GenLayer expiry and cross-chain Foundry recovery test |
+| Binding-versus-expiry cannot strand funds | settlement defers while a bound orphan exists; seven-day permissionless recovery marks it recovered, then core settlement omits only the recovered allocation | `testBoundAppealExpiredOnGenLayerRecoversAndCoreSettlementProceeds` and backend tests |
 | Frontend can resume partial completion | local reservation/tx persistence and idempotent confirmation | production bounty action flow |
 
 ## Adjudication
