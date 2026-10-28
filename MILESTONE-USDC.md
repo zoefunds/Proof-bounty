@@ -7,7 +7,7 @@ authoritative description of the current payment boundary.
 
 | Layer | Network | Address | Responsibility |
 |---|---|---|---|
-| Adjudication | GenLayer StudioNet | `0x0B083A0618C408cd4Af32EF4e507fE13e1184e66` | Evidence fetch, validator consensus, disputes, final state |
+| Adjudication | GenLayer StudioNet | `0x7942320C375529B8fB2E53F4e5a4d901a1c5cB94` | Evidence fetch, validator consensus, disputes, final state |
 | Payments | Base Sepolia | `0x71A6C9f3eA9026009b51463013743e4781F327c9` | USDC custody, allocation, pull claims |
 | Token | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | Six-decimal settlement asset |
 
@@ -47,9 +47,10 @@ adversarial tests.
 - Appeal deposits require a short-lived authorization for the finalized
   GenLayer appellant. Premature and third-party deposits cannot occupy the
   appeal-bond slot.
-- Positive-bond appeals first enter `APPEAL_PENDING_FUNDING`. Only the funding
-  attestor can activate one after verifying its exact Base deposit, and Base
-  separately binds that attestation. Abandoned reservations expire after two
+- Positive-bond appeals move from `APPEAL_PENDING_FUNDING` to
+  `APPEAL_FUNDED_PENDING_BINDING` after deposit verification. Base binding
+  makes the deposit non-recoverable, and only a second attestation then
+  activates consensus-review rights. Abandoned reservations expire after two
   hours; unactivated deposits are recoverable. Zero-bond appeals require no
   Base appeal transaction.
 - A recovered reservation remains bindable if GenLayer activation had already

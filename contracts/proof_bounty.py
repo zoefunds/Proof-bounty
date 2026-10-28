@@ -353,7 +353,8 @@ window is what makes "arbiter ruling with a mandatory GenLayer-consensus
 check" structurally real rather than cosmetic."""
 
 ATTEMPT_APPEALED: int = 10
-"""An appeal bond has been verified on Base (or the required bond is zero), contesting the arbiter's pending
+"""An appeal bond has been verified and made non-recoverably bound on Base
+(or the required bond is zero), contesting the arbiter's pending
 resolution, escalating EARLY to the same second, independent round of
 GenLayer validator consensus (`resolve_appeal`) that `finalize_arbiter_
 resolution` runs automatically anyway once the appeal window closes. This
@@ -377,6 +378,11 @@ not yet been activated. It receives no consensus-review rights until the
 funding attestor confirms the exact Base deposit. Anyone may expire an
 abandoned reservation after its bounded funding deadline."""
 
+ATTEMPT_APPEAL_FUNDED_PENDING_BINDING: int = 13
+"""The Base deposit was verified, but Base has not yet confirmed that the
+position is non-recoverable. This state still has no consensus-review rights;
+only a second attestation after Base binding may activate the appeal."""
+
 ATTEMPT_STATUS_LABELS: typing.Final[dict[int, str]] = {
     ATTEMPT_ACCEPTED: "ACCEPTED",
     ATTEMPT_SUBMITTED: "SUBMITTED",
@@ -391,6 +397,7 @@ ATTEMPT_STATUS_LABELS: typing.Final[dict[int, str]] = {
     ATTEMPT_APPEALED: "APPEALED",
     ATTEMPT_INSUFFICIENT_EVIDENCE_FINAL: "INSUFFICIENT_EVIDENCE_FINAL",
     ATTEMPT_APPEAL_PENDING_FUNDING: "APPEAL_PENDING_FUNDING",
+    ATTEMPT_APPEAL_FUNDED_PENDING_BINDING: "APPEAL_FUNDED_PENDING_BINDING",
 }
 
 # Attempt states an ordinary (non-arbiter) timeout/settlement path may act
@@ -424,6 +431,7 @@ _ATTEMPT_DISPUTE_IN_PROGRESS_STATES: typing.Final[tuple[int, ...]] = (
     ATTEMPT_ARBITER_RESOLVED_PENDING_APPEAL,
     ATTEMPT_APPEALED,
     ATTEMPT_APPEAL_PENDING_FUNDING,
+    ATTEMPT_APPEAL_FUNDED_PENDING_BINDING,
 )
 
 # --- Verdicts returned by the AI consensus check ---
@@ -2498,8 +2506,8 @@ parsable by a JSON parser without errors:
 
     @gl.public.write
     def confirm_appeal_funding(self, bounty_id: int, attempt_index: int, base_funding_tx_hash: str) -> None:
-        """Activate a positive-bond appeal only after the configured attestor
-        has reconciled its exact Base escrow deposit."""
+        """Record verified Base funding without activating appeal rights.
+        Activation remains gated on a separate post-binding attestation."""
         if gl.message.sender_address != self.funding_attestor:
             raise gl.vm.UserError("Caller is not the funding attestor")
         attempt = self._get_attempt(bounty_id, attempt_index)
@@ -2510,6 +2518,18 @@ parsable by a JSON parser without errors:
         if not base_funding_tx_hash or len(base_funding_tx_hash) != 66 or not base_funding_tx_hash.startswith("0x"):
             raise gl.vm.UserError("A 32-byte Base funding transaction hash is required")
         attempt.appeal_base_funding_tx_hash = base_funding_tx_hash
+        attempt.status = u8(ATTEMPT_APPEAL_FUNDED_PENDING_BINDING)
+
+    @gl.public.write
+    def confirm_appeal_binding(self, bounty_id: int, attempt_index: int) -> None:
+        """Activate consensus-review rights only after the attestor has
+        independently observed that Base marked the deposit bound and therefore
+        no longer eligible for unactivated-deposit recovery."""
+        if gl.message.sender_address != self.funding_attestor:
+            raise gl.vm.UserError("Caller is not the funding attestor")
+        attempt = self._get_attempt(bounty_id, attempt_index)
+        if attempt.status != ATTEMPT_APPEAL_FUNDED_PENDING_BINDING:
+            raise gl.vm.UserError("Appeal is not awaiting Base binding")
         attempt.status = u8(ATTEMPT_APPEALED)
 
     @gl.public.write
@@ -2518,7 +2538,7 @@ parsable by a JSON parser without errors:
         Restores the underlying pending ruling so normal final consensus can
         proceed immediately when its original appeal window has elapsed."""
         attempt = self._get_attempt(bounty_id, attempt_index)
-        if attempt.status != ATTEMPT_APPEAL_PENDING_FUNDING:
+        if attempt.status not in (ATTEMPT_APPEAL_PENDING_FUNDING, ATTEMPT_APPEAL_FUNDED_PENDING_BINDING):
             raise gl.vm.UserError("Appeal funding reservation is not pending")
         if self._now() <= int(attempt.appeal_funding_deadline):
             raise gl.vm.UserError("Appeal funding reservation has not expired")

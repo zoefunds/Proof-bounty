@@ -13,11 +13,11 @@ This is the current response to the funding and settlement integrity reviews.
 | Predictable bounty IDs could be occupied | Bounty funding requires finalized-creator authorization; recovery deletes the slot | bounty squatting and orphan-reuse Foundry tests |
 | Arbitrary wallets could pre-fund appeals | Appeal funding requires finalized-appellant authorization and expiry | appeal authorization Foundry tests |
 | Recovery after activation made binding impossible | Recovered positions remain bindable with a zero bond, preserving reward settlement without double bond payment | activated-recover-bind-settle Foundry test |
-| Unfunded appeals could obtain review rights or delay settlement | positive bonds require receipt attestation and Base binding before activation; abandoned reservations expire and deposits remain recoverable | GenLayer direct, Foundry recovery, and backend reconciliation tests |
+| Unfunded or merely attested appeals could obtain review rights | funding verification enters a non-resolvable pending-binding state; only post-bind attestation activates, while partial failures expire and reconcile | GenLayer direct, Foundry cross-chain recovery, and backend tests |
 
 This document tracks the current `main` release.
 
-- GenLayer: `0x0B083A0618C408cd4Af32EF4e507fE13e1184e66`
+- GenLayer: `0x7942320C375529B8fB2E53F4e5a4d901a1c5cB94`
 - Base escrow: `0x71A6C9f3eA9026009b51463013743e4781F327c9`
 - Frontend: <https://proof-bounty.vercel.app>
 - API/relay: <https://proofbounty-usdc-api.fly.dev>

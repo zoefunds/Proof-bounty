@@ -105,3 +105,18 @@ export async function attestAppealFunding(bountyId: number, attemptIndex: number
   if (!/FINAL|ACCEPTED/i.test(status) || (execution && execution !== "SUCCESS")) throw new Error(`GenLayer appeal funding attestation failed (${status || "unknown status"}/${execution || "unknown execution"})`);
   return String(hash);
 }
+
+export async function attestAppealBinding(bountyId: number, attemptIndex: number) {
+  if (!env.GENLAYER_FUNDING_ATTESTOR_PRIVATE_KEY) throw new Error("funding attestor is not configured");
+  const privateKey = (env.GENLAYER_FUNDING_ATTESTOR_PRIVATE_KEY.startsWith("0x")
+    ? env.GENLAYER_FUNDING_ATTESTOR_PRIVATE_KEY : `0x${env.GENLAYER_FUNDING_ATTESTOR_PRIVATE_KEY}`) as `0x${string}`;
+  const account = createAccount(privateKey);
+  const writer = createClient({ chain: chains.studionet, endpoint: env.GENLAYER_RPC_URL, account });
+  const hash = await writer.writeContract({ address: CONTRACT_ADDRESS, functionName: "confirm_appeal_binding", args: [bountyId, attemptIndex] as never, value: 0n });
+  const receipt = await writer.waitForTransactionReceipt({ hash, retries: 60, interval: 3000 });
+  const raw = (receipt as { status?: string | number; statusName?: string }).status ?? (receipt as { statusName?: string }).statusName ?? "";
+  const status = typeof raw === "number" || /^\d+$/.test(String(raw)) ? ({ 5: "ACCEPTED", 7: "FINALIZED" }[Number(raw)] ?? String(raw)) : String(raw);
+  const execution = (receipt as { consensus_data?: { leader_receipt?: Array<{ execution_result?: string }> } }).consensus_data?.leader_receipt?.[0]?.execution_result;
+  if (!/FINAL|ACCEPTED/i.test(status) || (execution && execution !== "SUCCESS")) throw new Error(`GenLayer appeal binding attestation failed (${status || "unknown status"}/${execution || "unknown execution"})`);
+  return String(hash);
+}

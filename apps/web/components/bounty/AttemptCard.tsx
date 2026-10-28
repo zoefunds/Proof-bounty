@@ -121,6 +121,7 @@ export function AttemptCard({
   const [baseError, setBaseError] = useState<string | null>(null);
   const [baseAppealFunding, setBaseAppealFunding] = useState(false);
   const [appealFundedOnBase, setAppealFundedOnBase] = useState(false);
+  const appealFundingStorageKey = `proofbounty:appeal-funding:${bounty.bounty_id}:${attempt.index}:${address?.toLowerCase() ?? "disconnected"}`;
 
   const now = useNow();
   const appealWindowOpen =
@@ -139,7 +140,8 @@ export function AttemptCard({
   const canAppeal = (isChallenger || isCreator) && appealWindowOpen;
   const canRetryAppealFunding = !appealFundedOnBase && attempt.appealed_by.toLowerCase() !== ZERO_ADDRESS &&
     address?.toLowerCase() === attempt.appealed_by.toLowerCase() && BigInt(attempt.bond_amount) > 0n &&
-    attempt.status_label === "APPEAL_PENDING_FUNDING" && now <= attempt.appeal_funding_deadline;
+    ["APPEAL_PENDING_FUNDING", "APPEAL_FUNDED_PENDING_BINDING"].includes(attempt.status_label) &&
+    now <= attempt.appeal_funding_deadline;
   const canExpireAppealFunding = attempt.status_label === "APPEAL_PENDING_FUNDING" && now > attempt.appeal_funding_deadline;
   const canRecoverUnactivatedAppeal = address?.toLowerCase() === attempt.appealed_by.toLowerCase() &&
     attempt.status_label === "APPEAL_PENDING_FUNDING" && now >= attempt.appeal_funding_deadline + 24 * 60 * 60;
@@ -203,10 +205,15 @@ export function AttemptCard({
     if (!address) throw new Error("Connect the finalized appellant wallet first.");
     setBaseAppealFunding(true);
     try {
-      const auth = await requestAppealFundingAuthorization(bounty.bounty_id, attempt.index, address);
-      await baseEscrow.approve();
-      const baseFundingTxHash = await baseEscrow.fundAppeal(bounty.bounty_id, attempt.index, auth.authorizationExpiry, auth.authorization);
+      let baseFundingTxHash = window.localStorage.getItem(appealFundingStorageKey);
+      if (!baseFundingTxHash) {
+        const auth = await requestAppealFundingAuthorization(bounty.bounty_id, attempt.index, address);
+        await baseEscrow.approve();
+        baseFundingTxHash = await baseEscrow.fundAppeal(bounty.bounty_id, attempt.index, auth.authorizationExpiry, auth.authorization);
+        window.localStorage.setItem(appealFundingStorageKey, baseFundingTxHash);
+      }
       await confirmAppealFunding(bounty.bounty_id, attempt.index, address, baseFundingTxHash);
+      window.localStorage.removeItem(appealFundingStorageKey);
       setAppealFundedOnBase(true);
       setBaseError(null);
     } finally { setBaseAppealFunding(false); }

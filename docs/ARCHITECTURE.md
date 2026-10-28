@@ -68,8 +68,9 @@ GenLayer consensus round. The final GenLayer state is relayed to Base only
 after a fresh direct read.
 
 Positive-bond appeals enter a two-hour `APPEAL_PENDING_FUNDING` reservation.
-They cannot run the second consensus review until the attestor verifies the
-exact Base receipt and the relay binds that deposit. An abandoned reservation
+Deposit verification advances them only to `APPEAL_FUNDED_PENDING_BINDING`.
+They cannot run the second consensus review until the relay binds that deposit
+and the attestor confirms the binding back to GenLayer. An abandoned reservation
 expires back to the underlying pending ruling, and an unactivated Base deposit
 is recoverable by its payer. Zero-bond appeals activate immediately.
 

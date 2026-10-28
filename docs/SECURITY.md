@@ -22,7 +22,8 @@ threshold authorization infrastructure.
   contract, and expiry.
 - Appeal funding binds the finalized GenLayer appellant, bounty, attempt,
   exact appeal bond, GenLayer contract, and expiry. Positive-bond appeals gain
-  no review rights until attestor-verified Base funding is bound. Reservations
+  no review rights until attestor-verified Base funding is bound and that
+  binding is separately attested back to GenLayer. Reservations
   expire after two hours and unactivated deposits are recoverable; zero-bond
   appeals settle without a deposit.
 - Binding authorizations bind the finalized attempt index and Base funding

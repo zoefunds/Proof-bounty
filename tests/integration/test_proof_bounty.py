@@ -1114,6 +1114,13 @@ def test_positive_appeal_requires_attestation_and_preserves_funded_amount_is_a_s
         with pytest.raises(Exception):
             contract.confirm_appeal_funding(0, 0, base_tx)
     contract.confirm_appeal_funding(0, 0, base_tx)
+    assert contract.get_attempt(0, 0)["status_label"] == "APPEAL_FUNDED_PENDING_BINDING"
+    with pytest.raises(Exception):
+        contract.resolve_appeal(0, 0)
+    with direct_vm.prank(direct_accounts[4]):
+        with pytest.raises(Exception):
+            contract.confirm_appeal_binding(0, 0)
+    contract.confirm_appeal_binding(0, 0)
     assert contract.get_attempt(0, 0)["status_label"] == "APPEALED"
 
     direct_vm.mock_web(r".*", {"status": 200, "body": "Mocked evidence page content."})
@@ -1155,6 +1162,8 @@ def test_abandoned_appeal_funding_expires_without_permanent_lock_is_a_safe_noop(
     with direct_vm.prank(challenger):
         contract.appeal_arbiter_resolution(0, 0, "I intend to appeal")
     assert contract.get_attempt(0, 0)["status_label"] == "APPEAL_PENDING_FUNDING"
+    contract.confirm_appeal_funding(0, 0, "0x" + "cd" * 32)
+    assert contract.get_attempt(0, 0)["status_label"] == "APPEAL_FUNDED_PENDING_BINDING"
     gl = sys.modules["genlayer.gl"]
     future = dt.datetime.now(dt.timezone.utc) + dt.timedelta(hours=3)
     gl.message_raw["datetime"] = future.isoformat().replace("+00:00", "Z")

@@ -6,7 +6,7 @@ being mistaken for production configuration.
 
 ## Production
 
-- GenLayer adjudication: `0x0B083A0618C408cd4Af32EF4e507fE13e1184e66`
+- GenLayer adjudication: `0x7942320C375529B8fB2E53F4e5a4d901a1c5cB94`
 - Base Sepolia escrow: `0x71A6C9f3eA9026009b51463013743e4781F327c9`
 - Base Sepolia USDC: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
 - Frontend: `https://proof-bounty.vercel.app`

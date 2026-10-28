@@ -1,7 +1,7 @@
 import { Contract, Interface, JsonRpcProvider, Wallet, getAddress, keccak256, toUtf8Bytes } from "ethers";
 import { env } from "../lib/env.js";
 import { prisma } from "../lib/prisma.js";
-import { attestAppealFunding, attestAttemptFunding, readContract } from "../lib/genlayer.js";
+import { attestAppealBinding, attestAppealFunding, attestAttemptFunding, readContract } from "../lib/genlayer.js";
 import { planAppealSettlement } from "./appeal-reconciliation.js";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -87,16 +87,22 @@ export async function confirmAppealFunding(bountyId: number, attemptIndex: numbe
     await attestAppealFunding(bountyId, attemptIndex, baseFundingTxHash);
     fresh = await readContract<LiveAttempt & { appealed_by: string }>("get_attempt", [bountyId, attemptIndex]);
   }
-  if (fresh.status_label !== "APPEALED" || fresh.appeal_base_funding_tx_hash.toLowerCase() !== baseFundingTxHash.toLowerCase()) throw new Error("GenLayer did not activate this exact Base appeal deposit");
+  if (!["APPEAL_FUNDED_PENDING_BINDING", "APPEALED"].includes(fresh.status_label) || fresh.appeal_base_funding_tx_hash.toLowerCase() !== baseFundingTxHash.toLowerCase()) throw new Error("GenLayer did not record this exact Base appeal deposit");
   const bound = await escrow.attempts(bountyId, attemptIndex);
-  if (bound.appealBound) return { genlayerActivated: true, alreadyBound: true, baseBindingTxHash: null };
-  const authorization = await signer.signTypedData(domain, { BindAppeal: [
-    { name: "bountyId", type: "uint256" }, { name: "attemptIndex", type: "uint256" },
-    { name: "appellant", type: "address" }, { name: "baseFundingTxHash", type: "bytes32" },
-  ] }, { bountyId, attemptIndex, appellant: normalized, baseFundingTxHash });
-  const tx = await escrow.bindAppeal(bountyId, attemptIndex, baseFundingTxHash, authorization);
-  await tx.wait();
-  return { genlayerActivated: true, alreadyBound: false, baseBindingTxHash: tx.hash };
+  let baseBindingTxHash: string | null = null;
+  if (!bound.appealBound) {
+    const authorization = await signer.signTypedData(domain, { BindAppeal: [
+      { name: "bountyId", type: "uint256" }, { name: "attemptIndex", type: "uint256" },
+      { name: "appellant", type: "address" }, { name: "baseFundingTxHash", type: "bytes32" },
+    ] }, { bountyId, attemptIndex, appellant: normalized, baseFundingTxHash });
+    const tx = await escrow.bindAppeal(bountyId, attemptIndex, baseFundingTxHash, authorization);
+    await tx.wait();
+    baseBindingTxHash = tx.hash;
+  }
+  if (fresh.status_label !== "APPEALED") await attestAppealBinding(bountyId, attemptIndex);
+  fresh = await readContract<LiveAttempt & { appealed_by: string }>("get_attempt", [bountyId, attemptIndex]);
+  if (fresh.status_label !== "APPEALED") throw new Error("GenLayer appeal did not activate after Base binding");
+  return { genlayerActivated: true, alreadyBound: baseBindingTxHash === null, baseBindingTxHash };
 }
 
 export async function createAttemptFundingAuthorization(bountyId: number, reservationId: number, challenger: string) {
@@ -188,6 +194,10 @@ export async function relayBaseOnce(logger: Logger) {
             ] }, { bountyId: cached.bountyId, attemptIndex: cachedAttempt.attemptIndex, appellant: getAddress(fresh.appealed_by), baseFundingTxHash: fresh.appeal_base_funding_tx_hash });
             await (await escrow.bindAppeal(cached.bountyId, cachedAttempt.attemptIndex, fresh.appeal_base_funding_tx_hash, authorization)).wait();
             baseAttempt = await escrow.attempts(cached.bountyId, cachedAttempt.attemptIndex);
+          }
+          if (baseAttempt.appealBound && fresh.status_label === "APPEAL_FUNDED_PENDING_BINDING") {
+            await attestAppealBinding(cached.bountyId, cachedAttempt.attemptIndex);
+            continue;
           }
           let outcome = 0; let payout = 0; let recipient = "";
           if (fresh.status_label === "WON") { outcome = 1; payout = fresh.last_payout_bps || 10_000; recipient = fresh.challenger; }

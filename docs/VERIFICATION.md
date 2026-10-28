@@ -9,7 +9,7 @@ Postgres index/cache was cleared after the cutover; live health reports
 
 ## Deployed components
 
-- GenLayer adjudication: `0x0B083A0618C408cd4Af32EF4e507fE13e1184e66`
+- GenLayer adjudication: `0x7942320C375529B8fB2E53F4e5a4d901a1c5cB94`
 - Base Sepolia escrow: `0x71A6C9f3eA9026009b51463013743e4781F327c9`
 - Base Sepolia USDC: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
 - Frontend: <https://proof-bounty.vercel.app>
@@ -18,9 +18,9 @@ Postgres index/cache was cleared after the cutover; live health reports
 The Base deployment transaction is
 `0xe460458d84e3ee662ff61af8b91755e3ac15e6273b1c53ed12b6e1bf27c5ab44`.
 The GenLayer deployment transaction is
-`0x8d5a30729755a15a9a628d7a907c1815efee53ae29245ba6be605bbcbbda7312`.
+`0x904cc24d0df9d8504027d7cdfa97797df9d775d887c596bcd20090b7e386514e`.
 The funding-attestor configuration transaction is
-`0xae58b0f5b73ed2f3fd7a72af9acdb5b5419445123ce2cf816c89f27069cc03f3`.
+`0xf1eb89f2039b33c779e2180e0d61cef1259e09713bafef1bc0a382574a5ea8e0`.
 
 Live reads on the current deployment report GenLayer bounty count `0`, contract
 balance `0`, and fee `250`. Base getters resolve to the USDC, relayer, decision
@@ -49,9 +49,10 @@ appeal funding, and late zero-bond binding after a recovered reservation whose
 GenLayer attempt had already activated.
 
 The appeal-integrity regressions prove that zero-bond appeals settle without a
-deposit, positive-bond appeals cannot resolve before attestation, unauthorized
-attestors cannot activate them, abandoned reservations expire safely, and a
-properly funded and Base-bound appeal pays the finalized recipient. Five
+deposit, positive-bond appeals cannot resolve after funding verification but
+before binding attestation, unauthorized attestors cannot activate them,
+partially activated reservations expire and financially reconcile safely, and
+a properly funded and Base-bound appeal pays the finalized recipient. Five
 backend tests reject missing, unbound, and mismatched positive collateral.
 
 The direct GenLayer tests demonstrate that arbitrary unfunded reservations do

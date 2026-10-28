@@ -196,7 +196,7 @@ contract ProofBountyEscrowTest {
         require(token.balanceOf(CREATOR) - creatorBefore == BOND, "late appeal bond claim failed");
     }
 
-    function testUnactivatedAppealCannotSettleAndPayerCanRecover() public {
+    function testAttestedAppealWithFailedBindingRecoversThenCoreSettlementProceeds() public {
         _fundAndRegister(65);
         _fundAndBindAttempt(65, 650, 0, CHALLENGER);
         uint64 expiry = uint64(block.timestamp + 10 minutes);
@@ -207,6 +207,12 @@ contract ProofBountyEscrowTest {
         vm.warp(uint256(expiry) + 1 days);
         vm.prank(CHALLENGER); escrow.recoverUnactivatedAppeal(65, 0);
         require(escrow.claimable(CHALLENGER) == BOND, "abandoned appeal bond not recoverable");
+        // GenLayer expires FUNDED_PENDING_BINDING back to the underlying
+        // pending ruling. Its eventual consensus result therefore carries no
+        // appeal recipient and Base can settle the original bond normally.
+        bytes32 reconciled = keccak256("reconciled-after-partial-activation");
+        vm.prank(RELAYER); escrow.executeDecision(65, 0, 2, 0, CHALLENGER, address(0), reconciled, 1, 0, type(uint64).max, _settleSig(65, 0, 2, 0, CHALLENGER, address(0), reconciled, 1, 0, type(uint64).max));
+        require(escrow.claimable(CHALLENGER) == BOND * 2, "original and recovered appeal bonds not reconciled");
     }
 
     function testStaleAndConflictingSettlementInstructionsFail() public {

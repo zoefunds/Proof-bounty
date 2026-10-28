@@ -92,11 +92,18 @@ paid twice.
 
 Appeal funding uses a short-lived EIP-712 authorization issued only after a
 fresh GenLayer read identifies the pending appellant. A positive-bond appeal
-cannot run its consensus review until the attestor verifies the exact Base
-receipt and the relay binds that deposit. Unfunded reservations expire after
+cannot run its consensus review when funding is merely verified: it first
+enters `APPEAL_FUNDED_PENDING_BINDING`. The relay binds the deposit on Base,
+then the attestor confirms that non-recoverable binding back to GenLayer before
+the state becomes `APPEALED`. Unfunded or unbound reservations expire after
 two hours, restoring the ordinary finalization path. A deposited but
 unactivated bond is recoverable by its payer after the Base delay. Zero-bond
 appeals require no Base funding and activate immediately.
+
+The frontend stores the original `AppealFunded` transaction hash in local
+storage before requesting either attestation. Interrupted confirmations reuse
+that exact transaction instead of attempting a duplicate deposit. The relay's
+independent sweep also retries Base binding and final binding attestation.
 
 ## Reproducible verification
 
