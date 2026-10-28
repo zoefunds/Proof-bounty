@@ -23,8 +23,9 @@ The funding-attestor configuration transaction is
 `0x51fbf29599fbfe90ceead96518c80c87d58511b382c86b99251fdffd8ce68209`.
 
 Live reads on the current deployment report GenLayer bounty count `0`, contract
-balance `0`, and fee `250`. Base getters resolve to the USDC, relayer, decision
-signer, attestor, and treasury documented for this release. The production API
+balance `0`, and default fee `250`. Base getters resolve to the USDC, owner,
+relayer, decision signer, and treasury documented for this release; GenLayer
+reports the documented funding attestor. The production API
 reports `lastBountyCount: 0`, `cachedBounties: 0`, and no indexer error. Prior
 deployment records are intentionally retained only in Git history so they
 cannot be mistaken for current operational data.

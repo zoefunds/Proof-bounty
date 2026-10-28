@@ -13,7 +13,7 @@ forge test -vv
 Applications:
 
 ```bash
-(cd apps/api && npm ci && npx tsc --noEmit && npx prisma generate && npm run build)
+(cd apps/api && npm ci && npm test && npx tsc --noEmit && npx prisma generate && npm run build)
 (cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
 ```
 

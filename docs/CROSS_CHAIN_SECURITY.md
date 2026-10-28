@@ -94,14 +94,23 @@ Appeal funding uses a short-lived EIP-712 authorization issued only after a
 fresh GenLayer read identifies the pending appellant. A positive-bond appeal
 cannot run its consensus review when funding is merely verified: it first
 enters `APPEAL_FUNDED_PENDING_BINDING`. The relay binds the deposit on Base,
-then the attestor confirms that non-recoverable binding back to GenLayer before
-the state becomes `APPEALED`. Pending-binding reservations expire after two
-hours, restoring the ordinary finalization path while retaining recovery
-metadata. Unbound deposits recover after one day. If Base binding won the race
-but final GenLayer attestation did not, core settlement defers while the bond
-exists; after seven days the payer recovers it permissionlessly, the explicit
-`appealRecovered` flag authorizes omission of that nonexistent allocation, and
-core settlement continues. Zero-bond appeals activate immediately.
+then the attestor confirms that binding back to GenLayer before the state
+becomes `APPEALED`. Pending-binding reservations expire after two hours,
+restoring the ordinary finalization path while retaining recovery metadata.
+Unbound deposits recover one day after authorization expiry. If Base binding
+won the race but final GenLayer attestation did not, core settlement defers
+while the bond exists; after the seven-day orphan delay the payer recovers it
+permissionlessly, the explicit `appealRecovered` flag authorizes omission of
+that recovered allocation, and core settlement continues. Zero-bond appeals
+activate immediately.
+
+Base cannot independently prove whether GenLayer expired or activated the
+appeal. Consequently, the bound-deposit recovery gate is the signed
+authorization expiry plus the seven-day delay and the requirement that the
+Base attempt remains unsettled; it is not a GenLayer state proof. The delay is
+the testnet availability tradeoff that prevents an unavailable attestor from
+trapping collateral. Mainnet deployment requires a verified cross-chain state
+proof or independent threshold authorization for this recovery decision.
 
 The frontend stores the original `AppealFunded` transaction hash in local
 storage before requesting either attestation. Interrupted confirmations reuse

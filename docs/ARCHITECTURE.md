@@ -72,10 +72,11 @@ Deposit verification advances them only to `APPEAL_FUNDED_PENDING_BINDING`.
 They cannot run the second consensus review until the relay binds that deposit
 and the attestor confirms the binding back to GenLayer. An abandoned reservation
 expires back to the underlying pending ruling. Unbound Base deposits recover
-after one day. A Base-bound deposit caught in the expiry race defers core
-settlement until its payer recovers it after seven days; the explicit recovered
-flag then permits core settlement without an appeal allocation. Zero-bond
-appeals activate immediately.
+one day after authorization expiry. A Base-bound, unsettled deposit caught in
+the expiry race defers core settlement until its payer can recover it after the
+seven-day orphan delay; the explicit recovered flag then permits core
+settlement without an appeal allocation. Zero-bond appeals activate
+immediately.
 
 ## Settlement state machine
 
@@ -120,10 +121,10 @@ support, not adjudication authority.
 
 ## Verification structure
 
-- `contracts/base/test/ProofBountyEscrow.t.sol`: thirteen Foundry tests covering
+- `contracts/base/test/ProofBountyEscrow.t.sol`: 15 Foundry tests covering
   funding identity, recovery, settlement authorization, conservation, and the
   complete fund-bind-settle-claim path.
-- `tests/integration/test_proof_bounty.py`: 40 GenLayer tests. Five selected
+- `tests/integration/test_proof_bounty.py`: 41 GenLayer tests. Six selected
   deterministic direct tests are run in the documented offline verification.
 - `scripts/00-reviewer-verify.mjs`: read-only deployed-source and critical-state
   verification.

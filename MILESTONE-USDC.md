@@ -49,11 +49,13 @@ adversarial tests.
   appeal-bond slot.
 - Positive-bond appeals move from `APPEAL_PENDING_FUNDING` to
   `APPEAL_FUNDED_PENDING_BINDING` after deposit verification. Base binding
-  makes the deposit non-recoverable, and only a second attestation then
-  activates consensus-review rights. Abandoned reservations expire after two
-  hours. Unbound deposits recover after one day; bound-but-expired deposits
-  recover after seven days, after which settlement proceeds without inventing
-  an appeal allocation. Zero-bond appeals require no Base transaction.
+  normally protects the deposit for the appeal outcome, and only a second
+  attestation then activates consensus-review rights. Abandoned reservations
+  expire after two hours. Unbound deposits recover one day after authorization
+  expiry. Bound, unsettled deposits remain reserved through the seven-day
+  orphan delay and then become permissionlessly recoverable, after which
+  settlement proceeds without inventing an appeal allocation. Zero-bond
+  appeals require no Base transaction.
 - A recovered reservation remains bindable if GenLayer activation had already
   succeeded. Its Base bond is zeroed after compensation, preserving reward
   settlement without paying the bond twice.
@@ -97,7 +99,7 @@ does not block GenLayer adjudication; the next sweep retries idempotently.
 - API TypeScript build and Prisma generation pass.
 - Web TypeScript and ESLint pass.
 - Selected offline GenLayer dispute/appeal adjudication tests: 6/6 pass.
-- Live reads on the fresh corrected GenLayer deployment: counter `0`, contract
+- Live reads on the current GenLayer deployment: counter `0`, contract
   balance `0`, and fee `250`; schema reports non-payable write methods.
 - Live Base reads confirm USDC, owner, relayer, decision signer, treasury, and
   the 10,000 BPS denominator.

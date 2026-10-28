@@ -57,8 +57,9 @@ attempts become `LOST_RACE` and can recover their bonds.
 - Positive-bond appeals remain pending and non-resolvable while the attestor
   verifies the Base deposit and the relay binds it; a second attestation only
   then activates consensus-review rights. Abandoned reservations expire after
-  two hours. Unbound deposits recover after one day; bound-but-expired deposits
-  recover after seven days and are explicitly waived from later allocation.
+  two hours. Unbound deposits recover one day after authorization expiry;
+  bound, unsettled deposits recover after the seven-day orphan delay and are
+  explicitly waived from later allocation.
   Zero-bond appeals activate immediately without a nonexistent deposit.
 - The frontend persists the original Base appeal-funding transaction hash and
   retries reconciliation after reloads or interrupted confirmations.
@@ -83,7 +84,7 @@ contracts/proof_bounty.py       GenLayer adjudication contract
 contracts/base/                 Base USDC escrow and Foundry tests
 apps/web/                       Next.js 16 / React 19 frontend
 apps/api/                       Fastify API, indexer, attestor, and Base relay
-tests/integration/              40 GenLayer tests
+tests/integration/              41 GenLayer tests
 scripts/00-reviewer-verify.mjs  Read-only deployed-source/state verification
 docs/                           Architecture, security, deployment, operations
 memory/MEMORY.md                Current operational snapshot

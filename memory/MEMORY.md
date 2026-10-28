@@ -29,6 +29,10 @@ Settlement uses a separate Base relayer and EIP-712 decision signer, canonical
 GenLayer state hashes, per-bounty nonces, and validity windows. The keys are
 distinct but currently share one Fly host, which is an explicit testnet trust
 assumption. Delayed creator/challenger recovery needs no service signature.
+For appeals, unbound collateral recovers one day after authorization expiry;
+bound, unsettled collateral uses the seven-day orphan delay. Base cannot prove
+GenLayer expiry, so this timer-based fallback is testnet-only and must become a
+verified or threshold-authorized cross-chain decision before mainnet.
 
 ## Live roles
 
