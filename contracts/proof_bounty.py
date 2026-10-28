@@ -773,12 +773,10 @@ class Attempt:
     appealed_by: Address
     appeal_reason: str
     appeal_bond_deposited: u256
-    """Escrowed separately from `bond_deposited` -- an appellant must post
-    this bond, forfeited to the non-appealing party if the fresh, second
-    round of GenLayer consensus (`resolve_appeal`) agrees with the
-    arbiter (deterring frivolous appeals), returned to the appellant if
-    that fresh consensus overturns the arbiter instead -- never a human
-    owner's ruling."""
+    """Declared appeal-bond amount mirrored to Base Sepolia. This remains
+    immutable after resolution so a delayed Base deposit can still be
+    authorized against finalized GenLayer state. GenLayer never escrows or
+    transfers the token itself."""
     appeal_bond_recipient: Address
     """Base Sepolia recipient selected by the finalized appeal outcome.
     Zero until an appeal is resolved; no funds are held on GenLayer."""
@@ -2604,11 +2602,12 @@ parsable by a JSON parser without errors:
 
         appeal_reason = attempt.appeal_reason
 
-        # --- read + zero the appeal-bond ledger BEFORE any transfer ---
-        appeal_bond = attempt.appeal_bond_deposited
+        # Preserve `appeal_bond_deposited` as finalized cross-chain evidence.
+        # GenLayer holds no token, so zeroing this declaration would not release
+        # funds; it would only make a delayed Base deposit impossible to
+        # authorize after consensus had selected the recipient.
         appellant = attempt.appealed_by
         counterparty = bounty.creator if appellant == attempt.challenger else attempt.challenger
-        attempt.appeal_bond_deposited = u256(0)
 
         verdict, arbiter_upheld = self._settle_via_second_consensus(
             bounty_id, attempt_index, bounty, attempt, appeal_reason,

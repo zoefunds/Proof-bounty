@@ -94,6 +94,7 @@ jobs:
           cache: "npm"
           cache-dependency-path: apps/api/package-lock.json
       - run: npm ci
+      - run: npm test
       - run: npx tsc --noEmit
       - run: npx prisma generate
       - run: npm run build

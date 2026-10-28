@@ -6,8 +6,8 @@ being mistaken for production configuration.
 
 ## Production
 
-- GenLayer adjudication: `0xdea68d6935dC32A59aFD7063356948c8cfA5E972`
-- Base Sepolia escrow: `0x642657E3e73091f15354Ca139bC07340fB95e21e`
+- GenLayer adjudication: `0x89322f6fc61872B812E4BE9E647F2154B7f73BE1`
+- Base Sepolia escrow: `0xEA3Ee1bD267C343c6C8e7C8C24bcfd401836dC83`
 - Base Sepolia USDC: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
 - Frontend: `https://proof-bounty.vercel.app`
 - API/relay: `https://proofbounty-usdc-api.fly.dev`
@@ -42,8 +42,9 @@ or documentation.
 
 ## Verification status
 
-- Foundry Base suite: 11/11 passing.
-- Selected deterministic GenLayer direct suite: 4/4 passing.
+- Foundry Base suite: 13/13 passing.
+- Backend appeal reconciliation suite: 4/4 passing.
+- Selected deterministic GenLayer direct suite: 5/5 passing.
 - API typecheck/build and Prisma generation: passing.
 - Frontend lint/typecheck and Vercel production build: passing.
 - Deployed GenLayer source matches `contracts/proof_bounty.py` exactly.

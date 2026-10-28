@@ -1083,6 +1083,47 @@ def test_resolve_appeal_rejects_when_not_appealed(accounts):
     assert not tx_execution_succeeded(tx), "resolve_appeal must reject an attempt that was never appealed"
 
 
+def test_positive_appeal_amount_survives_resolution_for_late_base_funding_is_a_safe_noop(
+    direct_vm, direct_deploy, direct_accounts
+):
+    """A finalized appeal must retain its declared amount so Base can issue
+    a late identity-bound funding authorization after consensus resolves."""
+    import json
+
+    treasury = direct_accounts[1]
+    arbiter = direct_accounts[2]
+    challenger = direct_accounts[3]
+    bond = 234_567
+    contract = direct_deploy("proof_bounty.py", treasury, 250)
+    contract.create_bounty(
+        "Late appeal funding", "The evidence supports the claim.", "POSITIVE",
+        "OPEN_SOURCE", VALID_CRITERIA, VALID_EVIDENCE_REQS, arbiter,
+        ONE_DAY, bond, 5 * 10**6,
+    )
+    _direct_reserve_and_activate(contract, direct_vm, direct_accounts[0], challenger)
+    with direct_vm.prank(challenger):
+        contract.raise_dispute(0, 0, "The primary outcome needs review")
+    with direct_vm.prank(arbiter):
+        contract.resolve_dispute(0, 0, "REJECT", "Arbiter rejects", 0)
+    with direct_vm.prank(challenger):
+        contract.appeal_arbiter_resolution(0, 0, "Fresh consensus should overturn this")
+
+    direct_vm.mock_web(r".*", {"status": 200, "body": "Mocked evidence page content."})
+    direct_vm.mock_llm(
+        r".*",
+        "```json\n" + json.dumps({
+            "verdict": "APPROVED", "reasoning": "Fresh consensus overturns the arbiter.", "payout_bps": 0,
+        }) + "\n```",
+    )
+    contract.resolve_appeal(0, 0)
+    finalized = contract.get_attempt(0, 0)
+    assert finalized["status_label"] == "WON"
+    assert finalized["appeal_bond_deposited"] == bond, (
+        "the finalized declaration must remain available for delayed Base authorization"
+    )
+    assert finalized["appeal_bond_recipient"].lower() == ("0x" + challenger.hex()).lower()
+
+
 # ============================================================================
 # Settlement transparency -- proves the human-ruling tier (the arbiter)
 # cannot silently substitute its own verdict for AI consensus: every human

@@ -30,6 +30,8 @@
 | Registration outage/mismatch cannot permanently trap a reward or block its ID forever | creator recovery after seven days credits the refund and deletes the slot | `testOrphanRecoveryRequiresDelayButNoPrivilegedSignature` |
 | Recovery after GenLayer activation cannot strand the winner | recovered reservation remains bindable with bond zeroed to prevent double payment | `testActivatedAttemptCanBindAfterRecoveryWithoutDoubleBond` |
 | Third parties cannot occupy an appeal-bond slot | EIP-712 `FundAppeal` binds finalized appellant, attempt, bond, contract, and expiry | `testAppealFundingRequiresEligibleAppellantAuthorization` |
+| Appeal resolution before Base funding remains recoverable | GenLayer preserves the declared amount; late funding stays authorized and allocates exactly once | positive late-funding GenLayer and Foundry tests |
+| Zero/missing appeal funding cannot freeze core settlement | zero-bond appeals settle immediately; positive bonds get a seven-day funding window followed by explicit waiver of nonexistent funds | backend reconciliation tests and zero-bond Foundry claim test |
 | Frontend can resume partial completion | local reservation/tx persistence and idempotent confirmation | production bounty action flow |
 
 ## Adjudication

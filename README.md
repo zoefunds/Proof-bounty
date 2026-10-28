@@ -10,8 +10,8 @@ six-decimal USDC. GenLayer never holds tokens.
 |---|---|
 | Frontend | <https://proof-bounty.vercel.app> |
 | API, indexer, and relay | <https://proofbounty-usdc-api.fly.dev> |
-| GenLayer StudioNet adjudication | `0xdea68d6935dC32A59aFD7063356948c8cfA5E972` |
-| Base Sepolia escrow | `0x642657E3e73091f15354Ca139bC07340fB95e21e` |
+| GenLayer StudioNet adjudication | `0x89322f6fc61872B812E4BE9E647F2154B7f73BE1` |
+| Base Sepolia escrow | `0xEA3Ee1bD267C343c6C8e7C8C24bcfd401836dC83` |
 | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | Base chain ID | `84532` |
 
@@ -54,6 +54,9 @@ attempts become `LOST_RACE` and can recover their bonds.
 - Bounty funding is authorized for the finalized GenLayer creator; recovered
   orphan deposits release the predictable Base bounty slot for a clean retry.
 - Appeal funding is authorized only for the finalized GenLayer appellant.
+- Finalized positive-bond appeals retain their declared amount for seven days
+  of late Base funding; afterward core settlement proceeds without inventing
+  an unfunded appeal allocation. Zero-bond appeals settle immediately.
 - Recovery after GenLayer activation does not destroy reconciliation: the
   attempt remains bindable with a zero bond after the bond refund.
 - Settlements bind every economic field, a canonical GenLayer state hash, a
@@ -75,7 +78,7 @@ contracts/proof_bounty.py       GenLayer adjudication contract
 contracts/base/                 Base USDC escrow and Foundry tests
 apps/web/                       Next.js 16 / React 19 frontend
 apps/api/                       Fastify API, indexer, attestor, and Base relay
-tests/integration/              39 GenLayer tests
+tests/integration/              40 GenLayer tests
 scripts/00-reviewer-verify.mjs  Read-only deployed-source/state verification
 docs/                           Architecture, security, deployment, operations
 memory/MEMORY.md                Current operational snapshot
@@ -95,8 +98,9 @@ gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
 (cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
 ```
 
-Current results: Foundry 11/11, selected deterministic GenLayer direct tests
-4/4, backend build passing, and frontend production build passing. GitHub
+Current results: Foundry 13/13, backend appeal reconciliation 4/4, selected
+deterministic GenLayer direct tests 5/5, backend build passing, and frontend
+production build passing. GitHub
 Actions contains these jobs, but GitHub currently refuses to start runners
 because the repository owner's account is billing-locked.
 

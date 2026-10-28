@@ -92,19 +92,24 @@ paid twice.
 
 Appeal funding uses a separate short-lived EIP-712 authorization issued only
 after a fresh GenLayer read identifies the finalized appellant. The relay
-defers final settlement when GenLayer assigns an appeal-bond recipient but no
-authorized Base appeal bond exists; the appellant can fund or retry even after
-GenLayer resolution.
+can authorize a positive-bond deposit even after GenLayer resolution because
+the finalized declaration is retained. It defers settlement for a seven-day
+late-funding window. A deposit made in that window is allocated to the exact
+finalized recipient. If no deposit ever existed, the relay then passes a zero
+appeal recipient and settles the reward/original bond without fabricating an
+asset or diverting escrow funds. Zero-bond appeals require no Base funding and
+settle immediately.
 
 ## Reproducible verification
 
 ```bash
 forge test -vv
 gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
-cd apps/api && npm ci && npm run build
+cd apps/api && npm ci && npm test && npm run build
 cd ../web && npm ci && npm run lint && npx tsc --noEmit && npm run build
 ```
 
 `testEndToEndFundBindSettleAndRecipientClaim` covers the complete Base custody
-path. The GenLayer direct tests prove unfunded reservations cannot consume
-attempt capacity and unauthorized callers cannot activate them.
+path. Dedicated tests also cover zero-bond appeal settlement and claims,
+positive late appeal funding and claims, the bounded missing-funding fallback,
+and preservation of finalized GenLayer appeal terms.

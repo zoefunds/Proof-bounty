@@ -164,6 +164,37 @@ contract ProofBountyEscrowTest {
         vm.prank(CHALLENGER); vm.expectRevert(); escrow.fundAppeal(62, 0, expiry, challengerAuth);
     }
 
+    function testZeroBondAppealResolutionSettlesAndRecipientClaimsWithoutAppealDeposit() public {
+        _fundAndRegisterWithBond(63, 0);
+        _fundAndBindAttemptWithBond(63, 630, 0, CHALLENGER, 0);
+        // A finalized GenLayer zero-bond appeal may name an informational
+        // recipient, but Base must pass address(0): there is no appeal asset
+        // to fund or allocate and core settlement must remain live.
+        bytes32 state = keccak256("zero-bond-finalized-appeal");
+        vm.prank(RELAYER); escrow.executeDecision(63, 0, 1, 10_000, CHALLENGER, address(0), state, 1, 0, type(uint64).max, _settleSig(63, 0, 1, 10_000, CHALLENGER, address(0), state, 1, 0, type(uint64).max));
+        uint256 beforeBalance = token.balanceOf(CHALLENGER);
+        uint256 expected = REWARD - (REWARD * FEE / 10_000);
+        vm.prank(CHALLENGER); escrow.claim();
+        require(token.balanceOf(CHALLENGER) - beforeBalance == expected, "zero-bond appeal claim failed");
+    }
+
+    function testPositiveAppealFinalizedBeforeBaseFundingCanFundSettleAndClaim() public {
+        _fundAndRegister(64);
+        _fundAndBindAttempt(64, 640, 0, CHALLENGER);
+        // Models GenLayer consensus finalizing first. The preserved finalized
+        // appellant/amount authorizes this delayed Base deposit afterward.
+        uint64 expiry = uint64(block.timestamp + 10 minutes);
+        vm.prank(CHALLENGER); escrow.fundAppeal(64, 0, expiry, _appealSig(64, 0, CHALLENGER, expiry));
+        bytes32 state = keccak256("positive-bond-finalized-before-funding");
+        vm.prank(RELAYER); escrow.executeDecision(64, 0, 2, 0, CHALLENGER, CREATOR, state, 1, 0, type(uint64).max, _settleSig(64, 0, 2, 0, CHALLENGER, CREATOR, state, 1, 0, type(uint64).max));
+        uint256 challengerBefore = token.balanceOf(CHALLENGER);
+        uint256 creatorBefore = token.balanceOf(CREATOR);
+        vm.prank(CHALLENGER); escrow.claim();
+        vm.prank(CREATOR); escrow.claim();
+        require(token.balanceOf(CHALLENGER) - challengerBefore == BOND, "original bond claim failed");
+        require(token.balanceOf(CREATOR) - creatorBefore == BOND, "late appeal bond claim failed");
+    }
+
     function testStaleAndConflictingSettlementInstructionsFail() public {
         _fundAndRegister(7);
         _fundAndBindAttempt(7, 70, 0, CHALLENGER);
@@ -195,27 +226,45 @@ contract ProofBountyEscrowTest {
     }
 
     function _fundAndRegister(uint256 id) private {
-        _fundBounty(id, CREATOR);
-        vm.prank(RELAYER); escrow.registerBounty(id, GENLAYER, _registerSig(id));
+        _fundAndRegisterWithBond(id, BOND);
+    }
+    function _fundAndRegisterWithBond(uint256 id, uint256 bond) private {
+        _fundBountyWithBond(id, CREATOR, bond);
+        vm.prank(RELAYER); escrow.registerBounty(id, GENLAYER, _registerSigWithBond(id, bond));
     }
     function _fundBounty(uint256 id, address creator) private {
+        _fundBountyWithBond(id, creator, BOND);
+    }
+    function _fundBountyWithBond(uint256 id, address creator, uint256 bond) private {
         uint64 expiry = uint64(block.timestamp + 10 minutes);
-        vm.prank(creator); escrow.fundBounty(id, REWARD, BOND, FEE, GENLAYER, expiry, _bountySig(id, creator, expiry));
+        vm.prank(creator); escrow.fundBounty(id, REWARD, bond, FEE, GENLAYER, expiry, _bountySigWithBond(id, creator, bond, expiry));
     }
     function _fundAndBindAttempt(uint256 id, uint256 reservationId, uint256 attemptIndex, address challenger) private {
+        _fundAndBindAttemptWithBond(id, reservationId, attemptIndex, challenger, BOND);
+    }
+    function _fundAndBindAttemptWithBond(uint256 id, uint256 reservationId, uint256 attemptIndex, address challenger, uint256 bond) private {
         uint64 expiry = uint64(block.timestamp + 1 hours);
-        vm.prank(challenger); escrow.fundAttempt(id, reservationId, expiry, _fundSig(id, reservationId, challenger, expiry));
+        vm.prank(challenger); escrow.fundAttempt(id, reservationId, expiry, _fundSigWithBond(id, reservationId, challenger, bond, expiry));
         bytes32 fundingTx = keccak256(abi.encode(id, reservationId));
         vm.prank(RELAYER); escrow.bindAttempt(id, reservationId, attemptIndex, fundingTx, _bindSig(id, reservationId, attemptIndex, challenger, fundingTx));
     }
     function _registerSig(uint256 id) private returns (bytes memory) {
-        return _sign(keccak256(abi.encode(REGISTER_TYPEHASH, id, CREATOR, REWARD, BOND, FEE, GENLAYER)));
+        return _registerSigWithBond(id, BOND);
+    }
+    function _registerSigWithBond(uint256 id, uint256 bond) private returns (bytes memory) {
+        return _sign(keccak256(abi.encode(REGISTER_TYPEHASH, id, CREATOR, REWARD, bond, FEE, GENLAYER)));
     }
     function _bountySig(uint256 id, address creator, uint64 expiry) private returns (bytes memory) {
-        return _sign(keccak256(abi.encode(FUND_BOUNTY_TYPEHASH, id, creator, REWARD, BOND, FEE, GENLAYER, expiry)));
+        return _bountySigWithBond(id, creator, BOND, expiry);
+    }
+    function _bountySigWithBond(uint256 id, address creator, uint256 bond, uint64 expiry) private returns (bytes memory) {
+        return _sign(keccak256(abi.encode(FUND_BOUNTY_TYPEHASH, id, creator, REWARD, bond, FEE, GENLAYER, expiry)));
     }
     function _fundSig(uint256 id, uint256 reservationId, address challenger, uint64 expiry) private returns (bytes memory) {
-        return _sign(keccak256(abi.encode(FUND_ATTEMPT_TYPEHASH, id, reservationId, challenger, BOND, GENLAYER, expiry)));
+        return _fundSigWithBond(id, reservationId, challenger, BOND, expiry);
+    }
+    function _fundSigWithBond(uint256 id, uint256 reservationId, address challenger, uint256 bond, uint64 expiry) private returns (bytes memory) {
+        return _sign(keccak256(abi.encode(FUND_ATTEMPT_TYPEHASH, id, reservationId, challenger, bond, GENLAYER, expiry)));
     }
     function _bindSig(uint256 id, uint256 reservationId, uint256 idx, address challenger, bytes32 fundingTx) private returns (bytes memory) {
         return _sign(keccak256(abi.encode(BIND_ATTEMPT_TYPEHASH, id, reservationId, idx, challenger, fundingTx)));

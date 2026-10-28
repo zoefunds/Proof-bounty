@@ -2,6 +2,7 @@ import { Contract, Interface, JsonRpcProvider, Wallet, getAddress, keccak256, to
 import { env } from "../lib/env.js";
 import { prisma } from "../lib/prisma.js";
 import { attestAttemptFunding, readContract } from "../lib/genlayer.js";
+import { planAppealSettlement } from "./appeal-reconciliation.js";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 const ABI = [
@@ -58,7 +59,9 @@ export async function createAppealFundingAuthorization(bountyId: number, attempt
   const base = await escrow.bounties(bountyId);
   const bound = await escrow.attempts(bountyId, attemptIndex);
   if (BigInt(fresh.appeal_bond_deposited) !== base.requiredBond) throw new Error("GenLayer appeal bond does not match the Base bounty terms");
-  if (!base.registered || base.rewardSettled || bound.challenger === ZERO || bound.settled || bound.appealBond !== 0n) throw new Error("Base appeal position is unavailable");
+  // Reward settlement may belong to a different winning attempt; it must not
+  // prevent this still-unsettled attempt from reconciling its own appeal bond.
+  if (!base.registered || bound.challenger === ZERO || bound.settled || bound.appealBond !== 0n) throw new Error("Base appeal position is unavailable");
   const authorizationExpiry = Math.floor(Date.now() / 1000) + 15 * 60;
   const authorization = await signer.signTypedData(domain, { FundAppeal: [
     { name: "bountyId", type: "uint256" }, { name: "attemptIndex", type: "uint256" },
@@ -152,11 +155,21 @@ export async function relayBaseOnce(logger: Logger) {
           else if (["LOST_RACE", "CANCELLED", "INSUFFICIENT_EVIDENCE_FINAL"].includes(fresh.status_label)) { outcome = 2; recipient = fresh.challenger; }
           else if (fresh.status_label === "BOND_FORFEITED") { outcome = 3; recipient = live.creator; }
           if (!outcome) continue;
-          if (fresh.appeal_bond_recipient !== ZERO && baseAttempt.appealBond === 0n) {
-            logger.error({ bountyId: cached.bountyId, attemptIndex: cachedAttempt.attemptIndex }, "base relay: finalized appeal has no authorized Base appeal bond; settlement deferred");
+          const appealPlan = planAppealSettlement({
+            finalizedRecipient: fresh.appeal_bond_recipient,
+            requiredBond: base.requiredBond,
+            fundedBond: baseAttempt.appealBond,
+            resolvedAt: fresh.resolved_at,
+            now: Math.floor(Date.now() / 1000),
+          });
+          if (appealPlan.defer) {
+            logger.error({ bountyId: cached.bountyId, attemptIndex: cachedAttempt.attemptIndex }, "base relay: finalized positive-bond appeal is inside its late-funding reconciliation window; settlement deferred");
             continue;
           }
-          const appealRecipient = baseAttempt.appealBond > 0n ? fresh.appeal_bond_recipient : ZERO;
+          if (appealPlan.fundingWaived) {
+            logger.error({ bountyId: cached.bountyId, attemptIndex: cachedAttempt.attemptIndex }, "base relay: appeal funding grace expired; settling core funds without a nonexistent appeal bond");
+          }
+          const appealRecipient = appealPlan.appealRecipient;
           await execute(escrow, signer, domain, base, cached.bountyId, cachedAttempt.attemptIndex, outcome, payout, recipient, appealRecipient, fresh.status_label, fresh);
           base = await escrow.bounties(cached.bountyId);
         }

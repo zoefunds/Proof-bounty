@@ -67,6 +67,12 @@ An explicit appeal or permissionless post-window finalization runs a second
 GenLayer consensus round. The final GenLayer state is relayed to Base only
 after a fresh direct read.
 
+Resolved appeals retain their declared appeal-bond amount as cross-chain
+evidence. A positive-bond appeal may be funded on Base for seven days after
+resolution; settlement waits during that reconciliation window. If no deposit
+ever existed, the relay then settles core funds with no appeal allocation.
+Zero-bond appeals bypass funding and settle immediately.
+
 ## Settlement state machine
 
 Every Base settlement authorization binds:
@@ -110,10 +116,10 @@ support, not adjudication authority.
 
 ## Verification structure
 
-- `contracts/base/test/ProofBountyEscrow.t.sol`: eleven Foundry tests covering
+- `contracts/base/test/ProofBountyEscrow.t.sol`: thirteen Foundry tests covering
   funding identity, recovery, settlement authorization, conservation, and the
   complete fund-bind-settle-claim path.
-- `tests/integration/test_proof_bounty.py`: 39 GenLayer tests. Four selected
+- `tests/integration/test_proof_bounty.py`: 40 GenLayer tests. Five selected
   deterministic direct tests are run in the documented offline verification.
 - `scripts/00-reviewer-verify.mjs`: read-only deployed-source and critical-state
   verification.

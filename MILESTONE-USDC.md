@@ -7,8 +7,8 @@ authoritative description of the current payment boundary.
 
 | Layer | Network | Address | Responsibility |
 |---|---|---|---|
-| Adjudication | GenLayer StudioNet | `0xdea68d6935dC32A59aFD7063356948c8cfA5E972` | Evidence fetch, validator consensus, disputes, final state |
-| Payments | Base Sepolia | `0x642657E3e73091f15354Ca139bC07340fB95e21e` | USDC custody, allocation, pull claims |
+| Adjudication | GenLayer StudioNet | `0x89322f6fc61872B812E4BE9E647F2154B7f73BE1` | Evidence fetch, validator consensus, disputes, final state |
+| Payments | Base Sepolia | `0xEA3Ee1bD267C343c6C8e7C8C24bcfd401836dC83` | USDC custody, allocation, pull claims |
 | Token | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | Six-decimal settlement asset |
 
 ## Live applications
@@ -47,6 +47,11 @@ adversarial tests.
 - Appeal deposits require a short-lived authorization for the finalized
   GenLayer appellant. Premature and third-party deposits cannot occupy the
   appeal-bond slot.
+- `resolve_appeal` preserves the declared GenLayer appeal amount so a
+  positive-bond deposit can still be authorized after final consensus. The
+  relay provides a seven-day late-funding window, then waives only the
+  nonexistent appeal allocation so reward/original-bond settlement cannot be
+  locked forever. Zero-bond appeals require no Base appeal transaction.
 - A recovered reservation remains bindable if GenLayer activation had already
   succeeded. Its Base bond is zeroed after compensation, preserving reward
   settlement without paying the bond twice.
@@ -85,12 +90,15 @@ does not block GenLayer adjudication; the next sweep retries idempotently.
 
 ## Verification completed
 
-- `forge test`: 11/11 Base escrow adversarial and end-to-end tests pass.
+- `forge test`: 13/13 Base escrow adversarial and end-to-end tests pass.
+- Backend appeal reconciliation tests: 4/4 pass.
 - API TypeScript build and Prisma generation pass.
 - Web TypeScript and ESLint pass.
-- Offline GenLayer dispute/appeal adjudication tests pass.
-- Live GenLayer reads after the finalized public trace: counter `1`, contract
-  balance `0`, and fee `250`; schema reports non-payable write methods.
+- Selected offline GenLayer dispute/appeal adjudication tests: 5/5 pass.
+- Live reads on the fresh corrected GenLayer deployment: counter `0`, contract
+  balance `0`, and fee `250`; schema reports non-payable write methods. The
+  prior deployment's finalized public trace remains archived in
+  `docs/VERIFICATION.md`.
 - Live Base reads confirm USDC, owner, relayer, decision signer, treasury, and
   the 10,000 BPS denominator.
 
