@@ -71,8 +71,9 @@ deployment and transactions above.
 ## CI availability
 
 The workflow contains dedicated Foundry, GenLayer, frontend, backend, and
-dependency jobs. The latest verified run for the integrity release is
-[`40702976599`](https://github.com/zoefunds/Proof-bounty/actions/runs/40702976599).
+dependency jobs. The appeal-expiry integrity implementation at commit
+`253cab074045a9c1d07ea7ba182f8d38ac54322d` produced run
+[`40706267538`](https://github.com/zoefunds/Proof-bounty/actions/runs/40706267538).
 GitHub refused to start every runner with: `The job was not started because
 your account is locked due to a billing issue.` Restore the repository owner's
 GitHub billing status and rerun the workflow; no repository change can bypass
