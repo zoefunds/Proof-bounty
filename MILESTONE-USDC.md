@@ -7,8 +7,8 @@ authoritative description of the current payment boundary.
 
 | Layer | Network | Address | Responsibility |
 |---|---|---|---|
-| Adjudication | GenLayer StudioNet | `0x9482012290132518c88D967623A15C3DDD0d247E` | Evidence fetch, validator consensus, disputes, final state |
-| Payments | Base Sepolia | `0xA99384bc4e6c045bBFD239Bbc9297a5C144AF711` | USDC custody, allocation, pull claims |
+| Adjudication | GenLayer StudioNet | `0xdea68d6935dC32A59aFD7063356948c8cfA5E972` | Evidence fetch, validator consensus, disputes, final state |
+| Payments | Base Sepolia | `0x642657E3e73091f15354Ca139bC07340fB95e21e` | USDC custody, allocation, pull claims |
 | Token | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` | Six-decimal settlement asset |
 
 ## Live applications
@@ -41,6 +41,15 @@ adversarial tests.
 - Pending GenLayer reservations do not consume funded-attempt capacity. Base
   funding is identity-bound and short-lived, and only attested funding becomes
   an adjudication attempt.
+- Bounty deposits require a short-lived authorization for the finalized
+  GenLayer creator and exact terms. Orphan recovery releases the Base bounty
+  slot so a legitimate creator can fund it later.
+- Appeal deposits require a short-lived authorization for the finalized
+  GenLayer appellant. Premature and third-party deposits cannot occupy the
+  appeal-bond slot.
+- A recovered reservation remains bindable if GenLayer activation had already
+  succeeded. Its Base bond is zeroed after compensation, preserving reward
+  settlement without paying the bond twice.
 - Winner identity must equal the wallet that funded the corresponding Base
   attempt. Unfunded reservations cannot become adjudication attempts.
 - A mismatched bounty deposit is refused during registration. An unregistered
@@ -76,7 +85,7 @@ does not block GenLayer adjudication; the next sweep retries idempotently.
 
 ## Verification completed
 
-- `forge test`: 8/8 Base escrow adversarial and end-to-end tests pass.
+- `forge test`: 11/11 Base escrow adversarial and end-to-end tests pass.
 - API TypeScript build and Prisma generation pass.
 - Web TypeScript and ESLint pass.
 - Offline GenLayer dispute/appeal adjudication tests pass.

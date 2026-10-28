@@ -1797,7 +1797,7 @@ parsable by a JSON parser without errors:
         if required_bond < 0:
             raise gl.vm.UserError("required_bond must not be negative")
 
-        arbiter = Address(arbiter_address)
+        arbiter = arbiter_address if isinstance(arbiter_address, Address) else Address(arbiter_address)
         if arbiter == self._zero_address():
             raise gl.vm.UserError("Arbiter address must not be the zero address")
 
@@ -2666,7 +2666,7 @@ parsable by a JSON parser without errors:
     @gl.public.write
     def update_treasury(self, new_treasury_address: str) -> None:
         self._require_owner()
-        new_treasury = Address(new_treasury_address)
+        new_treasury = new_treasury_address if isinstance(new_treasury_address, Address) else Address(new_treasury_address)
         if new_treasury == self._zero_address():
             raise gl.vm.UserError("Treasury address must not be the zero address")
         self.treasury = new_treasury
@@ -2687,7 +2687,7 @@ parsable by a JSON parser without errors:
     @gl.public.write
     def transfer_ownership(self, new_owner_address: str) -> None:
         self._require_owner()
-        new_owner = Address(new_owner_address)
+        new_owner = new_owner_address if isinstance(new_owner_address, Address) else Address(new_owner_address)
         if new_owner == self._zero_address():
             raise gl.vm.UserError("New owner must not be the zero address")
         self.owner = new_owner
@@ -2909,7 +2909,7 @@ parsable by a JSON parser without errors:
 
     @gl.public.view
     def get_reputation(self, address: str) -> dict:
-        addr = Address(address)
+        addr = address if isinstance(address, Address) else Address(address)
         if addr not in self.reputation:
             return {
                 "address": addr.as_hex,

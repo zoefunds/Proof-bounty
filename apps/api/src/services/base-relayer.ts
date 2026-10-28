@@ -32,6 +32,42 @@ function context() {
   return { provider, signer, escrow, domain };
 }
 
+export async function createBountyFundingAuthorization(bountyId: number, creator: string) {
+  const { signer, escrow, domain } = context();
+  const normalized = getAddress(creator);
+  const live = await readContract<LiveBounty>("get_bounty", [bountyId]);
+  if (getAddress(live.creator) !== normalized) throw new Error("caller is not the finalized GenLayer bounty creator");
+  const base = await escrow.bounties(bountyId);
+  if (base.creator !== ZERO) throw new Error("Base bounty slot is already funded");
+  const authorizationExpiry = Math.floor(Date.now() / 1000) + 15 * 60;
+  const authorization = await signer.signTypedData(domain, { FundBounty: [
+    { name: "bountyId", type: "uint256" }, { name: "creator", type: "address" },
+    { name: "reward", type: "uint256" }, { name: "requiredBond", type: "uint256" },
+    { name: "feeBps", type: "uint16" }, { name: "genlayerContract", type: "address" },
+    { name: "authorizationExpiry", type: "uint64" },
+  ] }, { bountyId, creator: normalized, reward: live.reward_amount, requiredBond: live.required_bond, feeBps: live.platform_fee_bps, genlayerContract: env.PROOFBOUNTY_CONTRACT_ADDRESS, authorizationExpiry });
+  return { authorization, authorizationExpiry, reward: String(live.reward_amount), requiredBond: String(live.required_bond), feeBps: live.platform_fee_bps, genlayerContract: env.PROOFBOUNTY_CONTRACT_ADDRESS };
+}
+
+export async function createAppealFundingAuthorization(bountyId: number, attemptIndex: number, appellant: string) {
+  const { signer, escrow, domain } = context();
+  const normalized = getAddress(appellant);
+  const fresh = await readContract<LiveAttempt & { appealed_by: string; appeal_bond_deposited: number }>("get_attempt", [bountyId, attemptIndex]);
+  if (fresh.appealed_by === ZERO) throw new Error("GenLayer attempt has no finalized appellant");
+  if (getAddress(fresh.appealed_by) !== normalized) throw new Error("caller is not the finalized GenLayer appellant");
+  const base = await escrow.bounties(bountyId);
+  const bound = await escrow.attempts(bountyId, attemptIndex);
+  if (BigInt(fresh.appeal_bond_deposited) !== base.requiredBond) throw new Error("GenLayer appeal bond does not match the Base bounty terms");
+  if (!base.registered || base.rewardSettled || bound.challenger === ZERO || bound.settled || bound.appealBond !== 0n) throw new Error("Base appeal position is unavailable");
+  const authorizationExpiry = Math.floor(Date.now() / 1000) + 15 * 60;
+  const authorization = await signer.signTypedData(domain, { FundAppeal: [
+    { name: "bountyId", type: "uint256" }, { name: "attemptIndex", type: "uint256" },
+    { name: "appellant", type: "address" }, { name: "bond", type: "uint256" },
+    { name: "genlayerContract", type: "address" }, { name: "authorizationExpiry", type: "uint64" },
+  ] }, { bountyId, attemptIndex, appellant: normalized, bond: base.requiredBond, genlayerContract: base.genlayerContract, authorizationExpiry });
+  return { authorization, authorizationExpiry, bond: base.requiredBond.toString() };
+}
+
 export async function createAttemptFundingAuthorization(bountyId: number, reservationId: number, challenger: string) {
   const { signer, escrow, domain } = context();
   const normalized = getAddress(challenger);
@@ -63,7 +99,8 @@ export async function confirmAttemptFunding(bountyId: number, reservationId: num
   let reservation = await readContract<Reservation>("get_attempt_reservation", [reservationId]);
   if (reservation.bounty_id !== bountyId || getAddress(reservation.challenger) !== normalized) throw new Error("GenLayer reservation mismatch");
   const pending = await escrow.pendingAttempts(bountyId, reservationId);
-  if (getAddress(pending.challenger) !== normalized || pending.recovered) throw new Error("Base pending funding mismatch or already recovered");
+  if (getAddress(pending.challenger) !== normalized) throw new Error("Base pending funding mismatch");
+  if (pending.recovered && reservation.status_label !== "ACTIVATED") throw new Error("recovered reservation cannot be activated after recovery");
   let genlayerTxHash = reservation.base_funding_tx_hash;
   if (reservation.status_label === "PENDING_FUNDING") {
     genlayerTxHash = await attestAttemptFunding(bountyId, reservationId, baseFundingTxHash);
@@ -115,6 +152,10 @@ export async function relayBaseOnce(logger: Logger) {
           else if (["LOST_RACE", "CANCELLED", "INSUFFICIENT_EVIDENCE_FINAL"].includes(fresh.status_label)) { outcome = 2; recipient = fresh.challenger; }
           else if (fresh.status_label === "BOND_FORFEITED") { outcome = 3; recipient = live.creator; }
           if (!outcome) continue;
+          if (fresh.appeal_bond_recipient !== ZERO && baseAttempt.appealBond === 0n) {
+            logger.error({ bountyId: cached.bountyId, attemptIndex: cachedAttempt.attemptIndex }, "base relay: finalized appeal has no authorized Base appeal bond; settlement deferred");
+            continue;
+          }
           const appealRecipient = baseAttempt.appealBond > 0n ? fresh.appeal_bond_recipient : ZERO;
           await execute(escrow, signer, domain, base, cached.bountyId, cachedAttempt.attemptIndex, outcome, payout, recipient, appealRecipient, fresh.status_label, fresh);
           base = await escrow.bounties(cached.bountyId);

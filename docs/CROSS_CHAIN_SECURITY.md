@@ -7,6 +7,13 @@ attestor and settlement signer remain explicit testnet trust assumptions.
 
 ## Funding protocol
 
+Before a reward deposit, the authorization service reads the finalized
+GenLayer bounty and signs the exact creator, reward, bond, fee, GenLayer
+contract, and expiry. An unrelated wallet cannot occupy a predictable bounty
+ID. If an unregistered deposit is recovered after seven days, the Base slot is
+deleted after crediting the refund and can be funded again under a fresh
+authorization.
+
 1. A challenger calls `reserve_attempt` on GenLayer. The reservation records
    their identity and expires after two hours. It is not an adjudication
    attempt, does not lock criteria, and does not consume the 40 funded-attempt
@@ -76,6 +83,18 @@ operational host with the relay.
 
 Recovery never performs a direct token push; users call `claim()` after the
 escrow credits their balance.
+
+If GenLayer activation succeeded but Base binding did not, delayed recovery
+credits and zeroes the bond without invalidating the reservation. A later
+authorized binding creates the Base attempt with a zero bond, so a finalized
+winner still has a reward settlement path and the recovered bond cannot be
+paid twice.
+
+Appeal funding uses a separate short-lived EIP-712 authorization issued only
+after a fresh GenLayer read identifies the finalized appellant. The relay
+defers final settlement when GenLayer assigns an appeal-bond recipient but no
+authorized Base appeal bond exists; the appellant can fund or retry even after
+GenLayer resolution.
 
 ## Reproducible verification
 

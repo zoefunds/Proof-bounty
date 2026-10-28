@@ -10,8 +10,8 @@ six-decimal USDC. GenLayer never holds tokens.
 |---|---|
 | Frontend | <https://proof-bounty.vercel.app> |
 | API, indexer, and relay | <https://proofbounty-usdc-api.fly.dev> |
-| GenLayer StudioNet adjudication | `0x9482012290132518c88D967623A15C3DDD0d247E` |
-| Base Sepolia escrow | `0xA99384bc4e6c045bBFD239Bbc9297a5C144AF711` |
+| GenLayer StudioNet adjudication | `0xdea68d6935dC32A59aFD7063356948c8cfA5E972` |
+| Base Sepolia escrow | `0x642657E3e73091f15354Ca139bC07340fB95e21e` |
 | Base Sepolia USDC | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | Base chain ID | `84532` |
 
@@ -51,6 +51,11 @@ attempts become `LOST_RACE` and can recover their bonds.
   testnet trust, not a trustless bridge.
 - Funding authorizations prevent another wallet from occupying a challenger's
   reservation, and unfunded reservations never consume attempt capacity.
+- Bounty funding is authorized for the finalized GenLayer creator; recovered
+  orphan deposits release the predictable Base bounty slot for a clean retry.
+- Appeal funding is authorized only for the finalized GenLayer appellant.
+- Recovery after GenLayer activation does not destroy reconciliation: the
+  attempt remains bindable with a zero bond after the bond refund.
 - Settlements bind every economic field, a canonical GenLayer state hash, a
   strictly increasing nonce, and a ten-minute validity window.
 - Replay, stale/conflicting nonces, expiry, tampering, wrong callers/signers,
@@ -90,7 +95,7 @@ gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
 (cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
 ```
 
-Current results: Foundry 8/8, selected deterministic GenLayer direct tests
+Current results: Foundry 11/11, selected deterministic GenLayer direct tests
 4/4, backend build passing, and frontend production build passing. GitHub
 Actions contains these jobs, but GitHub currently refuses to start runners
 because the repository owner's account is billing-locked.

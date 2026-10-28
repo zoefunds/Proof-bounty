@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useContractRead } from "@/lib/use-contract-read";
 import { useContractWrite } from "@/lib/use-contract-write";
 import { useWallet } from "@/lib/wallet-context";
-import { confirmAttemptFunding, requestAttemptFundingAuthorization, useBaseEscrow } from "@/lib/base-escrow";
+import { confirmAttemptFunding, requestAttemptFundingAuthorization, requestBountyFundingAuthorization, useBaseEscrow } from "@/lib/base-escrow";
 import { getContractAddress, getReadOnlyClient } from "@/lib/genlayer-client";
 import { useNow } from "@/lib/use-now";
 import { formatGen, formatDeadline, formatTimestamp, truncateAddress, isExpired } from "@/lib/format";
@@ -211,7 +211,7 @@ function BountyActionPanel({
   const timeoutTx = useContractWrite();
   const baseEscrow = useBaseEscrow();
   const [baseError, setBaseError] = useState<string | null>(null);
-  const [fundedRecovery, setFundedRecovery] = useState<{ reservationId: number; baseFundingTxHash: string } | null>(null);
+  const [fundedRecovery, setFundedRecovery] = useState<{ reservationId: number; baseFundingTxHash: string; recovered?: boolean } | null>(null);
   const [fundingStage, setFundingStage] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
@@ -227,7 +227,7 @@ function BountyActionPanel({
     return () => { cancelled = true; };
   }, [recoveryKey]);
 
-  function rememberRecovery(value: { reservationId: number; baseFundingTxHash: string } | null) {
+  function rememberRecovery(value: { reservationId: number; baseFundingTxHash: string; recovered?: boolean } | null) {
     setFundedRecovery(value);
     if (!recoveryKey) return;
     if (value) window.localStorage.setItem(recoveryKey, JSON.stringify(value));
@@ -281,15 +281,17 @@ function BountyActionPanel({
 
   async function recoverFunding() {
     if (!fundedRecovery) return;
-    try { await baseEscrow.recoverPendingAttempt(bounty.bounty_id, fundedRecovery.reservationId); rememberRecovery(null); setFundingStage("Unbound bond credited for claim on Base Sepolia."); }
+    try { await baseEscrow.recoverPendingAttempt(bounty.bounty_id, fundedRecovery.reservationId); rememberRecovery({ ...fundedRecovery, recovered: true }); setFundingStage("Unbound bond credited for claim. Retry binding remains available in case GenLayer was already activated."); }
     catch (err) { setBaseError(err instanceof Error ? err.message : String(err)); }
   }
 
   async function retryBountyFunding() {
     try {
       setBaseError(null); setFundingStage("Funding or repairing the Base reward position…");
+      if (!address) throw new Error("Connect the bounty creator wallet first.");
+      const auth = await requestBountyFundingAuthorization(bounty.bounty_id, address);
       await baseEscrow.approve();
-      await baseEscrow.fundBounty(bounty.bounty_id, BigInt(bounty.reward_amount), BigInt(bounty.required_bond), bounty.platform_fee_bps);
+      await baseEscrow.fundBounty(bounty.bounty_id, BigInt(auth.reward), BigInt(auth.requiredBond), auth.feeBps, auth.authorizationExpiry, auth.authorization);
       setFundingStage("Base reward funded. Registration will be reconciled by the relay.");
     } catch (err) { setBaseError(err instanceof Error ? err.message : String(err)); }
   }
@@ -341,9 +343,9 @@ function BountyActionPanel({
           <TxStateBanner state={acceptTx.state} txHash={acceptTx.txHash} errorMessage={acceptTx.errorMessage} />
           {fundingStage && <p className="font-body text-xs text-electric-blue">{fundingStage}</p>}
           {baseError && <p className="font-body text-xs text-status-rejected">Cross-chain funding needs attention: {baseError}</p>}
-          {fundedRecovery && <div className="rounded border border-status-partial/40 p-3 text-xs text-on-surface-variant"><p>The Base deposit exists, but it is not yet bound to a funded GenLayer attempt. Retry binding now. If the attestor remains unavailable, recover the unbound bond after the authorization expiry plus 24 hours.</p><div className="mt-2 flex gap-2"><Button onClick={retryConfirmation}>Retry binding</Button><Button variant="ghost" onClick={recoverFunding}>Recover unbound bond</Button></div></div>}
         </>
       )}
+      {fundedRecovery && <div className="rounded border border-status-partial/40 p-3 text-xs text-on-surface-variant"><p>The Base deposit exists, but binding is incomplete. Retry remains available even when this bounty no longer accepts new attempts. If GenLayer was already activated, delayed recovery compensates the bond and a later retry still binds the attempt with a zero Base bond, preserving its reward-settlement path.</p><div className="mt-2 flex gap-2"><Button onClick={retryConfirmation}>Retry binding</Button>{!fundedRecovery.recovered && <Button variant="ghost" onClick={recoverFunding}>Recover unbound bond</Button>}</div></div>}
       {canCancel && (
         <>
           <p className="font-body text-sm text-on-surface-variant mb-2">

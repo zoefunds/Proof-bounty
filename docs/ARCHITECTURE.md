@@ -110,7 +110,7 @@ support, not adjudication authority.
 
 ## Verification structure
 
-- `contracts/base/test/ProofBountyEscrow.t.sol`: eight Foundry tests covering
+- `contracts/base/test/ProofBountyEscrow.t.sol`: eleven Foundry tests covering
   funding identity, recovery, settlement authorization, conservation, and the
   complete fund-bind-settle-claim path.
 - `tests/integration/test_proof_bounty.py`: 39 GenLayer tests. Four selected

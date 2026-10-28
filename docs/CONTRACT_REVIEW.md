@@ -5,6 +5,7 @@
 | Invariant | Enforcement | Verification |
 |---|---|---|
 | Another wallet cannot occupy a challenger's funding position | EIP-712 `FundAttempt` binds reservation and `msg.sender` | `testAttemptFundingIsIdentityBoundAndSquattingFails` |
+| Another wallet cannot occupy a predictable bounty ID | EIP-712 `FundBounty` binds finalized creator and exact GenLayer terms | `testBountyFundingIsCreatorBoundAndSquattingFails` |
 | Unfunded users cannot exhaust the 40-attempt cap | `reserve_attempt` stores outside attempts; cap applies in `confirm_attempt_funding` | `test_unfunded_reservations_do_not_consume_attempt_cap_is_a_safe_noop` |
 | Only verified funding can activate an attempt | GenLayer checks `funding_attestor`; API verifies Base receipt/event first | `test_only_funding_attestor_can_activate_reservation_is_a_safe_noop` |
 | Base and GenLayer use the exact finalized index | Activated reservation stores the index; `BindAttempt` signs it with the Base funding tx hash | end-to-end Foundry test |
@@ -26,7 +27,9 @@
 | Invariant | Enforcement | Verification |
 |---|---|---|
 | Relay outage cannot permanently trap an unbound bond | challenger recovery after authorization expiry + 24 hours, no signature | `testUnboundAttemptRecoveryNeedsNoPrivilegedSignature` |
-| Registration outage/mismatch cannot permanently trap a reward | creator recovery after seven days, no signature | `testOrphanRecoveryRequiresDelayButNoPrivilegedSignature` |
+| Registration outage/mismatch cannot permanently trap a reward or block its ID forever | creator recovery after seven days credits the refund and deletes the slot | `testOrphanRecoveryRequiresDelayButNoPrivilegedSignature` |
+| Recovery after GenLayer activation cannot strand the winner | recovered reservation remains bindable with bond zeroed to prevent double payment | `testActivatedAttemptCanBindAfterRecoveryWithoutDoubleBond` |
+| Third parties cannot occupy an appeal-bond slot | EIP-712 `FundAppeal` binds finalized appellant, attempt, bond, contract, and expiry | `testAppealFundingRequiresEligibleAppellantAuthorization` |
 | Frontend can resume partial completion | local reservation/tx persistence and idempotent confirmation | production bounty action flow |
 
 ## Adjudication

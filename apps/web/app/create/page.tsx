@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useWallet } from "@/lib/wallet-context";
 import { useContractWrite } from "@/lib/use-contract-write";
 import { useContractRead } from "@/lib/use-contract-read";
-import { useBaseEscrow } from "@/lib/base-escrow";
+import { requestBountyFundingAuthorization, useBaseEscrow } from "@/lib/base-escrow";
 import { getContractAddress, getReadOnlyClient } from "@/lib/genlayer-client";
 import { toUsdcUnits } from "@/lib/format";
 import { VALID_CATEGORIES } from "@/lib/contract-config";
@@ -92,12 +92,15 @@ export default function CreateBountyPage() {
           .sort((a, b) => b.bounty_id - a.bounty_id)[0];
         if (!created) throw new Error("The finalized GenLayer bounty could not be reconciled; no USDC was moved.");
         setCreatedBountyId(created.bounty_id);
+        const auth = await requestBountyFundingAuthorization(created.bounty_id, address);
         await baseEscrow.approve();
         await baseEscrow.fundBounty(
           created.bounty_id,
-          toUsdcUnits(reward),
-          toUsdcUnits(bond || "0"),
-          Number(process.env.NEXT_PUBLIC_DEFAULT_FEE_BPS ?? 250)
+          BigInt(auth.reward),
+          BigInt(auth.requiredBond),
+          auth.feeBps,
+          auth.authorizationExpiry,
+          auth.authorization
         );
         setStep(6); // success screen
       } catch (err) {

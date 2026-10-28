@@ -6,13 +6,14 @@ being mistaken for production configuration.
 
 ## Production
 
-- GenLayer adjudication: `0x9482012290132518c88D967623A15C3DDD0d247E`
-- Base Sepolia escrow: `0xA99384bc4e6c045bBFD239Bbc9297a5C144AF711`
+- GenLayer adjudication: `0xdea68d6935dC32A59aFD7063356948c8cfA5E972`
+- Base Sepolia escrow: `0x642657E3e73091f15354Ca139bC07340fB95e21e`
 - Base Sepolia USDC: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
 - Frontend: `https://proof-bounty.vercel.app`
 - API/relay: `https://proofbounty-usdc-api.fly.dev`
 - Fly app/database: `proofbounty-usdc-api` / `proofbounty-usdc-db`
-- Remediation baseline: commit `6e86ecba383615102bcc4bd0dad62356ed458c48`
+- Earlier remediation baseline: `6e86ecba383615102bcc4bd0dad62356ed458c48`;
+  the authoritative release is the current `main` commit.
 
 GenLayer is adjudication-only and all write methods are non-payable. Base is
 the only token custodian. Payments use six-decimal USDC.
@@ -42,7 +43,7 @@ or documentation.
 
 ## Verification status
 
-- Foundry Base suite: 8/8 passing.
+- Foundry Base suite: 11/11 passing.
 - Selected deterministic GenLayer direct suite: 4/4 passing.
 - API typecheck/build and Prisma generation: passing.
 - Frontend lint/typecheck and Vercel production build: passing.

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useWallet } from "@/lib/wallet-context";
 import { useContractWrite } from "@/lib/use-contract-write";
-import { useBaseEscrow } from "@/lib/base-escrow";
+import { requestAppealFundingAuthorization, useBaseEscrow } from "@/lib/base-escrow";
 import { useNow } from "@/lib/use-now";
 import { formatGen, truncateAddress, formatTimestamp, bpsToPercent } from "@/lib/format";
 import { api, isApiConfigured, type EvidenceArchiveItem } from "@/lib/api-client";
@@ -118,6 +118,8 @@ export function AttemptCard({
   const appealTx = useContractWrite();
   const baseEscrow = useBaseEscrow();
   const [baseError, setBaseError] = useState<string | null>(null);
+  const [baseAppealFunding, setBaseAppealFunding] = useState(false);
+  const [appealFundedOnBase, setAppealFundedOnBase] = useState(false);
 
   const now = useNow();
   const appealWindowOpen =
@@ -134,6 +136,8 @@ export function AttemptCard({
   const canReclaim = isChallenger && attempt.status_label === "LOST_RACE";
   const canForfeit = isCreator && attempt.status_label === "REJECTED_FINAL";
   const canAppeal = (isChallenger || isCreator) && appealWindowOpen;
+  const canRetryAppealFunding = !appealFundedOnBase && attempt.appealed_by.toLowerCase() !== ZERO_ADDRESS &&
+    address?.toLowerCase() === attempt.appealed_by.toLowerCase() && BigInt(attempt.bond_amount) > 0n;
   const canFinalize = appealWindowClosed; // permissionless — anyone may call
 
   async function handleSubmitEvidence() {
@@ -190,6 +194,18 @@ export function AttemptCard({
     if (ok) onChanged();
   }
 
+  async function fundAppealOnBase() {
+    if (!address) throw new Error("Connect the finalized appellant wallet first.");
+    setBaseAppealFunding(true);
+    try {
+      const auth = await requestAppealFundingAuthorization(bounty.bounty_id, attempt.index, address);
+      await baseEscrow.approve();
+      await baseEscrow.fundAppeal(bounty.bounty_id, attempt.index, auth.authorizationExpiry, auth.authorization);
+      setAppealFundedOnBase(true);
+      setBaseError(null);
+    } finally { setBaseAppealFunding(false); }
+  }
+
   async function handleAppeal() {
     const ok = await appealTx.write({
       functionName: "appeal_arbiter_resolution",
@@ -198,8 +214,7 @@ export function AttemptCard({
     if (ok) {
       try {
         if (BigInt(attempt.bond_amount) > 0n) {
-          await baseEscrow.approve();
-          await baseEscrow.fundAppeal(bounty.bounty_id, attempt.index);
+          await fundAppealOnBase();
         }
         setShowAppealForm(false);
         onChanged();
@@ -363,6 +378,11 @@ export function AttemptCard({
             Appeal Resolution
           </Button>
         )}
+        {canRetryAppealFunding && (
+          <Button size="sm" variant="secondary" onClick={() => fundAppealOnBase().catch((err) => setBaseError(err instanceof Error ? err.message : String(err)))} isLoading={baseAppealFunding}>
+            Fund / Retry Base Appeal Bond
+          </Button>
+        )}
         {canFinalize && (
           <Button size="sm" onClick={handleFinalize} isLoading={finalizeTx.isBusy}>
             Finalize Resolution
@@ -429,7 +449,7 @@ export function AttemptCard({
           <div>
             <Label>
               Appeal Reason — requires posting {formatGen(attempt.bond_amount)} USDC on Base Sepolia as an appeal bond, forfeited
-              to the other party if the owner agrees with the arbiter
+              to the other party if the final GenLayer consensus agrees with the arbiter
             </Label>
             <GlassTextarea
               rows={2}
