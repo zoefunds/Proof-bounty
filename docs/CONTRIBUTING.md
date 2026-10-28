@@ -27,7 +27,9 @@ Vercel Turbopack production build remains the deployment gate.
   USDC terms; tokens never move through GenLayer.
 - Never create a capped attempt before verified Base funding. Pending demand
   belongs in `AttemptReservation` storage.
-- Preserve permissionless reservation expiry and signature-free Base recovery.
+- Preserve permissionless reservation expiry and signature-free recovery for
+  unbound Base positions. Bound appeal recovery must remain authorized from a
+  fresh finalized GenLayer abandonment state.
 - Any Base escrow change needs focused Foundry coverage for caller identity,
   EIP-712 field binding, replay/conflict behavior, conservation, and recovery.
 - After GenLayer deployment, compare `genlayer code <address>` with the local

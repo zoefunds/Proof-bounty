@@ -3,15 +3,17 @@ import { env } from "../lib/env.js";
 import { prisma } from "../lib/prisma.js";
 import { attestAppealBinding, attestAppealFunding, attestAttemptFunding, readContract } from "../lib/genlayer.js";
 import { planAppealSettlement } from "./appeal-reconciliation.js";
+import { assertBoundAppealRecoveryEligible, type AppealRecoveryState } from "./appeal-recovery.js";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 const ABI = [
   "function bounties(uint256) view returns (address creator,uint256 reward,uint256 requiredBond,uint16 feeBps,uint64 fundedAt,address genlayerContract,bool registered,bool rewardSettled,uint256 decisionNonce)",
   "function pendingAttempts(uint256,uint256) view returns (address challenger,uint256 bond,uint64 fundedAt,uint64 authorizationExpiry,bool bound,bool recovered)",
-  "function attempts(uint256,uint256) view returns (address challenger,uint256 bond,uint256 appealBond,address appealPayer,bool settled,uint256 reservationId,uint64 appealAuthorizationExpiry,bool appealBound,bool appealRecovered)",
+  "function attempts(uint256,uint256) view returns (address challenger,uint256 bond,uint256 appealBond,address appealPayer,bool settled,uint256 reservationId,uint64 appealAuthorizationExpiry,bool appealBound,bool appealRecovered,bytes32 appealFundingTxHash)",
   "function registerBounty(uint256 bountyId,address genlayerContract,bytes authorization)",
   "function bindAttempt(uint256 bountyId,uint256 reservationId,uint256 attemptIndex,bytes32 baseFundingTxHash,bytes authorization)",
   "function bindAppeal(uint256 bountyId,uint256 attemptIndex,bytes32 baseFundingTxHash,bytes authorization)",
+  "function recoverAbandonedBoundAppeal(uint256 bountyId,uint256 attemptIndex,bytes32 genlayerStateHash,uint64 validBefore,bytes authorization)",
   "function executeDecision(uint256 bountyId,uint256 attemptIndex,uint8 outcomeCode,uint16 payoutBps,address recipient,address appealRecipient,bytes32 genlayerStateHash,uint256 decisionNonce,uint64 validAfter,uint64 validBefore,bytes authorization)",
   "event AttemptFundingReserved(uint256 indexed bountyId,uint256 indexed reservationId,address indexed challenger,uint256 bond,uint64 authorizationExpiry)",
   "event AppealFunded(uint256 indexed bountyId,uint256 indexed attemptIndex,address indexed appellant,uint256 bond)",
@@ -20,7 +22,7 @@ const ABI = [
 type Logger = { info: (o: unknown, msg?: string) => void; error: (o: unknown, msg?: string) => void };
 type Reservation = { bounty_id: number; reservation_id: number; challenger: string; status_label: string; funding_deadline: number; activated_attempt_index: number; base_funding_tx_hash: string };
 type LiveBounty = { creator: string; reward_amount: number; required_bond: number; platform_fee_bps: number; status_label: string; winning_attempt_index: number };
-type LiveAttempt = { challenger: string; status_label: string; last_payout_bps: number; last_verdict: string; appeal_bond_recipient: string; appealed_by: string; resolved_at: number; appeal_base_funding_tx_hash: string };
+type LiveAttempt = AppealRecoveryState & { challenger: string; last_payout_bps: number; last_verdict: string; resolved_at: number };
 
 let running = false;
 function configured() { return !!(env.BASE_ESCROW_ADDRESS && env.BASE_RELAYER_PRIVATE_KEY && env.BASE_DECISION_SIGNER_PRIVATE_KEY); }
@@ -71,6 +73,39 @@ export async function createAppealFundingAuthorization(bountyId: number, attempt
     { name: "genlayerContract", type: "address" }, { name: "authorizationExpiry", type: "uint64" },
   ] }, { bountyId, attemptIndex, appellant: normalized, bond: base.requiredBond, genlayerContract: base.genlayerContract, authorizationExpiry });
   return { authorization, authorizationExpiry, bond: base.requiredBond.toString() };
+}
+
+export async function createAppealRecoveryAuthorization(bountyId: number, attemptIndex: number, appellant: string) {
+  const { signer, escrow, domain } = context();
+  const normalized = getAddress(appellant);
+  const now = Math.floor(Date.now() / 1000);
+  const base = await escrow.bounties(bountyId);
+  const bound = await escrow.attempts(bountyId, attemptIndex);
+  if (!base.registered || bound.challenger === ZERO || bound.settled || bound.appealRecovered || bound.appealBond === 0n) throw new Error("Base appeal is not recoverable");
+  if (getAddress(bound.appealPayer) !== normalized) throw new Error("caller is not the Base appeal payer");
+  if (!bound.appealBound) {
+    if (now < Number(bound.appealAuthorizationExpiry) + 24 * 60 * 60) throw new Error("unbound appeal orphan delay has not elapsed");
+    return { mode: "unbound" as const };
+  }
+  if (now < Number(bound.appealAuthorizationExpiry) + 7 * 24 * 60 * 60) throw new Error("bound appeal orphan delay has not elapsed");
+  const fresh = await readContract<LiveAttempt>("get_attempt", [bountyId, attemptIndex]);
+  assertBoundAppealRecoveryEligible({ fresh, appellant: normalized, baseFundingTxHash: bound.appealFundingTxHash, now });
+  const canonical = JSON.stringify({
+    genlayerContract: getAddress(base.genlayerContract).toLowerCase(),
+    bountyId,
+    attemptIndex,
+    recovery: "ABANDONED_BOUND_APPEAL",
+    freshState: fresh,
+  });
+  const genlayerStateHash = keccak256(toUtf8Bytes(canonical));
+  const validBefore = now + 10 * 60;
+  const authorization = await signer.signTypedData(domain, { RecoverBoundAppeal: [
+    { name: "bountyId", type: "uint256" }, { name: "attemptIndex", type: "uint256" },
+    { name: "appellant", type: "address" }, { name: "baseFundingTxHash", type: "bytes32" },
+    { name: "genlayerContract", type: "address" }, { name: "genlayerStateHash", type: "bytes32" },
+    { name: "validBefore", type: "uint64" },
+  ] }, { bountyId, attemptIndex, appellant: normalized, baseFundingTxHash: bound.appealFundingTxHash, genlayerContract: base.genlayerContract, genlayerStateHash, validBefore });
+  return { mode: "bound" as const, authorization, genlayerStateHash, validBefore };
 }
 
 export async function confirmAppealFunding(bountyId: number, attemptIndex: number, appellant: string, baseFundingTxHash: string) {

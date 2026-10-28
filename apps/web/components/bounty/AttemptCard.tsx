@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useWallet } from "@/lib/wallet-context";
 import { useContractWrite } from "@/lib/use-contract-write";
-import { confirmAppealFunding, requestAppealFundingAuthorization, useBaseEscrow } from "@/lib/base-escrow";
+import { confirmAppealFunding, requestAppealFundingAuthorization, requestAppealRecoveryAuthorization, useBaseEscrow } from "@/lib/base-escrow";
 import { useNow } from "@/lib/use-now";
 import { formatGen, truncateAddress, formatTimestamp, bpsToPercent } from "@/lib/format";
 import { api, isApiConfigured, type EvidenceArchiveItem } from "@/lib/api-client";
@@ -144,8 +144,9 @@ export function AttemptCard({
     now <= attempt.appeal_funding_deadline;
   const canExpireAppealFunding = attempt.status_label === "APPEAL_PENDING_FUNDING" && now > attempt.appeal_funding_deadline;
   const canRecoverUnactivatedAppeal = address?.toLowerCase() === attempt.appealed_by.toLowerCase() &&
-    attempt.appeal_funding_deadline > 0 && now >= attempt.appeal_funding_deadline + 7 * 24 * 60 * 60 &&
-    ["APPEAL_PENDING_FUNDING", "APPEAL_FUNDED_PENDING_BINDING", "ARBITER_RESOLVED_PENDING_APPEAL"].includes(attempt.status_label);
+    attempt.appeal_funding_deadline > 0 && now >= attempt.appeal_funding_deadline + 24 * 60 * 60 &&
+    BigInt(attempt.appeal_bond_deposited) === 0n && attempt.appeal_bond_recipient.toLowerCase() === ZERO_ADDRESS &&
+    !["APPEAL_PENDING_FUNDING", "APPEAL_FUNDED_PENDING_BINDING", "APPEALED"].includes(attempt.status_label);
   const canFinalize = appealWindowClosed; // permissionless — anyone may call
 
   async function handleSubmitEvidence() {
@@ -245,7 +246,13 @@ export function AttemptCard({
 
   async function handleRecoverUnactivatedAppeal() {
     try {
-      await baseEscrow.recoverUnactivatedAppeal(bounty.bounty_id, attempt.index);
+      if (!address) throw new Error("Connect the finalized appellant wallet first.");
+      const recovery = await requestAppealRecoveryAuthorization(bounty.bounty_id, attempt.index, address);
+      if (recovery.mode === "bound") {
+        await baseEscrow.recoverAbandonedBoundAppeal(bounty.bounty_id, attempt.index, recovery.genlayerStateHash, recovery.validBefore, recovery.authorization);
+      } else {
+        await baseEscrow.recoverUnactivatedAppeal(bounty.bounty_id, attempt.index);
+      }
       setBaseError(null);
       onChanged();
     } catch (err) { setBaseError(err instanceof Error ? err.message : String(err)); }
@@ -417,7 +424,7 @@ export function AttemptCard({
         )}
         {canRecoverUnactivatedAppeal && (
           <Button size="sm" variant="secondary" onClick={handleRecoverUnactivatedAppeal}>
-            Recover Unactivated Appeal Bond
+            Recover Abandoned Appeal Bond
           </Button>
         )}
         {canFinalize && (

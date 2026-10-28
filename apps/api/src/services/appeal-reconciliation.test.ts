@@ -47,9 +47,16 @@ test("expired GenLayer reservation defers while a bound Base bond still exists",
   }), { defer: true, appealRecipient: ZERO, fundingWaived: false });
 });
 
-test("explicitly recovered appeal collateral cannot block core settlement", () => {
+test("explicitly recovered abandoned collateral cannot block core settlement", () => {
   assert.deepEqual(planAppealSettlement({
+    finalizedRecipient: ZERO, requiredBond: 20n, fundedBond: 0n,
+    appealBound: true, appealRecovered: true,
+  }), { defer: false, appealRecipient: ZERO, fundingWaived: false });
+});
+
+test("recovery state cannot waive an adverse finalized appeal allocation", () => {
+  assert.throws(() => planAppealSettlement({
     finalizedRecipient: RECIPIENT, requiredBond: 20n, fundedBond: 0n,
     appealBound: true, appealRecovered: true,
-  }), { defer: false, appealRecipient: ZERO, fundingWaived: true });
+  }), /cannot waive/);
 });

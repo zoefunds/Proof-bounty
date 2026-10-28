@@ -7,7 +7,7 @@ All frontend variables are public and bundled into browser JavaScript.
 | Variable | Production value / purpose |
 |---|---|
 | `NEXT_PUBLIC_PROOFBOUNTY_CONTRACT_ADDRESS` | `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2` |
-| `NEXT_PUBLIC_BASE_ESCROW_ADDRESS` | `0xFC271817DA30f1BEf651ef5BacDd1a37127f0976` |
+| `NEXT_PUBLIC_BASE_ESCROW_ADDRESS` | `0x4fD51A722A6E7Eb939Ba790b58759E12CB2dd2c6` |
 | `NEXT_PUBLIC_BASE_USDC_ADDRESS` | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
 | `NEXT_PUBLIC_GENLAYER_NETWORK` | `studionet` |
 | `NEXT_PUBLIC_GENLAYER_RPC_URL` | `https://studio.genlayer.com/api` |

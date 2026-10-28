@@ -99,18 +99,20 @@ becomes `APPEALED`. Pending-binding reservations expire after two hours,
 restoring the ordinary finalization path while retaining recovery metadata.
 Unbound deposits recover one day after authorization expiry. If Base binding
 won the race but final GenLayer attestation did not, core settlement defers
-while the bond exists; after the seven-day orphan delay the payer recovers it
-permissionlessly, the explicit `appealRecovered` flag authorizes omission of
-that recovered allocation, and core settlement continues. Zero-bond appeals
-activate immediately.
+while the bond exists. After the seven-day orphan delay, the authorization
+service performs a fresh finalized `get_attempt` read. It signs
+`RecoverBoundAppeal` only when the original appellant and Base funding hash
+match retained GenLayer metadata, `appeal_bond_deposited` is zero, no appeal
+bond recipient exists, and the state is not pending, binding, or appealed.
+The signature also binds the GenLayer contract, canonical state hash, and a
+ten-minute expiry. The appellant submits it directly on Base without the
+relayer transaction key. Zero-bond appeals activate immediately.
 
-Base cannot independently prove whether GenLayer expired or activated the
-appeal. Consequently, the bound-deposit recovery gate is the signed
-authorization expiry plus the seven-day delay and the requirement that the
-Base attempt remains unsettled; it is not a GenLayer state proof. The delay is
-the testnet availability tradeoff that prevents an unavailable attestor from
-trapping collateral. Mainnet deployment requires a verified cross-chain state
-proof or independent threshold authorization for this recovery decision.
+Base still cannot verify GenLayer consensus independently; the decision
+signer is the disclosed testnet oracle for this recovery just as it is for
+settlement. A compromised signer can misauthorize recovery. Mainnet deployment
+requires a verified cross-chain state proof or independent threshold policy
+for both decisions and bound-appeal recovery.
 
 The frontend stores the original `AppealFunded` transaction hash in local
 storage before requesting either attestation. Interrupted confirmations reuse
@@ -129,4 +131,5 @@ cd ../web && npm ci && npm run lint && npx tsc --noEmit && npm run build
 `testEndToEndFundBindSettleAndRecipientClaim` covers the complete Base custody
 path. Dedicated tests also cover zero-bond appeal settlement and claims,
 positive attested appeal funding and claims, rejection of unbound collateral,
-and both unbound and bound-expiry recovery with eventual core settlement.
+authorized bound-expiry recovery with eventual core settlement, and an active
+appeal remaining nonrecoverable after seven days before its bond is forfeited.

@@ -10,13 +10,13 @@ Postgres index/cache was cleared after the cutover; live health reports
 ## Deployed components
 
 - GenLayer adjudication: `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2`
-- Base Sepolia escrow: `0xFC271817DA30f1BEf651ef5BacDd1a37127f0976`
+- Base Sepolia escrow: `0x4fD51A722A6E7Eb939Ba790b58759E12CB2dd2c6`
 - Base Sepolia USDC: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
 - Frontend: <https://proof-bounty.vercel.app>
 - API/relay: <https://proofbounty-usdc-api.fly.dev>
 
 The Base deployment transaction is
-`0x82d5abb6d8e9d2e9a88ebaa0a66f98d2e11ac57a93430c0564642591e0883235`.
+`0xc8827c55cfe7fedb84a5ac588997500f4ee3e8162b3939aea4973471dd20414b`.
 The GenLayer deployment transaction is
 `0x27f25577a43754f9609f323708e8791612c67eb440be95521abf8ff974a110d7`.
 The funding-attestor configuration transaction is
@@ -40,11 +40,11 @@ gltest tests/integration -v -s -k "is_a_safe_noop or human_override"
 (cd apps/web && npm ci && npm run lint && npx tsc --noEmit && npm run build)
 ```
 
-The 15-test Foundry suite includes the complete Base flow: identity-authorized funding,
+The 16-test Foundry suite includes the complete Base flow: identity-authorized funding,
 reservation binding, nonce- and time-bound settlement, recipient accounting,
 and pull claim. It also exercises index squatting, mismatched identities,
-unauthorized binding, stale/conflicting/expired decisions, replay, and both
-signature-free delayed recovery paths. It specifically proves creator-bound
+unauthorized binding, stale/conflicting/expired decisions, replay, and the
+signature-free creator/unbound recovery paths. It specifically proves creator-bound
 bounty funding with slot reuse after orphan recovery, eligible-appellant-only
 appeal funding, and late zero-bond binding after a recovered reservation whose
 GenLayer attempt had already activated.
@@ -54,9 +54,11 @@ deposit, positive-bond appeals cannot resolve after funding verification but
 before binding attestation, unauthorized attestors cannot activate them,
 partially activated and already-bound reservations expire and financially
 reconcile safely without stranded bonds or permanent settlement deferral, and
-a properly funded and Base-bound appeal pays the finalized recipient. Seven
-backend tests reject missing, unbound, and mismatched collateral, defer while a
-bound orphan exists, and resume after its explicit recovery.
+a properly funded and Base-bound appeal pays the finalized recipient. The
+regressions also reject recovery for active and adversely finalized appeals and
+prove that an adverse outcome still allocates the appeal bond. Twelve backend
+tests cover state eligibility and settlement reconciliation, including deferral
+while a bound orphan exists and resumption after authorized recovery.
 
 The direct GenLayer tests demonstrate that arbitrary unfunded reservations do
 not consume the funded-attempt cap and that only the configured funding

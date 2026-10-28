@@ -35,6 +35,6 @@ export function planAppealSettlement(input: {
     if (!input.appealBound) throw new Error("Base appeal bond was not activated by GenLayer attestation");
     return { defer: false, appealRecipient: input.finalizedRecipient, fundingWaived: false };
   }
-  if (input.appealRecovered) return { defer: false, appealRecipient: ZERO, fundingWaived: true };
+  if (input.appealRecovered) throw new Error("recovered appeal collateral cannot waive a finalized recipient allocation");
   throw new Error("finalized positive-bond appeal has no verified Base collateral");
 }

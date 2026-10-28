@@ -73,10 +73,12 @@ They cannot run the second consensus review until the relay binds that deposit
 and the attestor confirms the binding back to GenLayer. An abandoned reservation
 expires back to the underlying pending ruling. Unbound Base deposits recover
 one day after authorization expiry. A Base-bound, unsettled deposit caught in
-the expiry race defers core settlement until its payer can recover it after the
-seven-day orphan delay; the explicit recovered flag then permits core
-settlement without an appeal allocation. Zero-bond appeals activate
-immediately.
+the expiry race defers core settlement. After the seven-day orphan delay, the
+API re-reads finalized GenLayer state and signs recovery only if the retained
+appellant/funding hash match, the declared appeal bond is zero, and no appeal
+recipient exists. The appellant submits that authorization directly on Base;
+active and adversely finalized appeals remain locked for settlement.
+Zero-bond appeals activate immediately.
 
 ## Settlement state machine
 
@@ -121,7 +123,7 @@ support, not adjudication authority.
 
 ## Verification structure
 
-- `contracts/base/test/ProofBountyEscrow.t.sol`: 15 Foundry tests covering
+- `contracts/base/test/ProofBountyEscrow.t.sol`: 16 Foundry tests covering
   funding identity, recovery, settlement authorization, conservation, and the
   complete fund-bind-settle-claim path.
 - `tests/integration/test_proof_bounty.py`: 41 GenLayer tests. Six selected

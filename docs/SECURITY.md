@@ -25,8 +25,10 @@ threshold authorization infrastructure.
   no review rights until attestor-verified Base funding is bound and that
   binding is separately attested back to GenLayer. Reservations expire after
   two hours. Unbound deposits recover 24 hours after authorization expiry;
-  bound, unsettled deposits recover after the seven-day orphan delay and carry
-  an explicit recovered flag so settlement cannot allocate nonexistent funds.
+  bound, unsettled deposits recover after the seven-day orphan delay only with
+  a short-lived decision-signer authorization derived from fresh finalized
+  GenLayer state proving zero declared appeal bond and no recipient. Active or
+  adversely finalized appeals remain nonrecoverable and fully allocatable.
 - Binding authorizations bind the finalized attempt index and Base funding
   transaction hash.
 - Settlement binds all economic fields, canonical state hash, nonce, and time
@@ -105,10 +107,10 @@ from stale cache. Existing unbound users retain signature-free recovery.
 - The relay and decision signer share an operational host.
 - There is no light client, bridge proof, or threshold oracle verifying
   GenLayer on Base.
-- Base cannot prove appeal expiry. Bound appeal recovery therefore uses the
-  signed authorization expiry plus a seven-day delay; this availability
-  fallback must be replaced by verified or threshold-authorized cross-chain
-  state before mainnet.
+- Base cannot prove appeal expiry. Bound appeal recovery therefore uses a
+  fresh state-bound decision-signer authorization after the seven-day delay.
+  This oracle must be replaced by verified or threshold-authorized
+  cross-chain state before mainnet.
 - Owner and treasury are an externally owned testnet account, not a multisig.
 - Evidence is not pinned to IPFS or Arweave.
 - Notifications are polling-based, not guaranteed delivery.

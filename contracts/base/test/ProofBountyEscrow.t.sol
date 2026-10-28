@@ -46,6 +46,7 @@ contract ProofBountyEscrowTest {
     bytes32 private constant BIND_ATTEMPT_TYPEHASH = keccak256("BindAttempt(uint256 bountyId,uint256 reservationId,uint256 attemptIndex,address challenger,bytes32 baseFundingTxHash)");
     bytes32 private constant FUND_APPEAL_TYPEHASH = keccak256("FundAppeal(uint256 bountyId,uint256 attemptIndex,address appellant,uint256 bond,address genlayerContract,uint64 authorizationExpiry)");
     bytes32 private constant BIND_APPEAL_TYPEHASH = keccak256("BindAppeal(uint256 bountyId,uint256 attemptIndex,address appellant,bytes32 baseFundingTxHash)");
+    bytes32 private constant RECOVER_BOUND_APPEAL_TYPEHASH = keccak256("RecoverBoundAppeal(uint256 bountyId,uint256 attemptIndex,address appellant,bytes32 baseFundingTxHash,address genlayerContract,bytes32 genlayerStateHash,uint64 validBefore)");
 
     MockUSDC token;
     ProofBountyEscrow escrow;
@@ -123,7 +124,7 @@ contract ProofBountyEscrowTest {
         vm.prank(CHALLENGER); escrow.fundAttempt(5, 50, expiry, challengerAuth);
         bytes32 fundingTx = keccak256("funding-50");
         vm.prank(RELAYER); escrow.bindAttempt(5, 50, 0, fundingTx, _bindSig(5, 50, 0, CHALLENGER, fundingTx));
-        (address bound,,,,,uint256 reservationId,,,) = escrow.attempts(5, 0);
+        (address bound,,,,,uint256 reservationId,,,,) = escrow.attempts(5, 0);
         require(bound == CHALLENGER && reservationId == 50, "wrong binding");
     }
 
@@ -146,7 +147,7 @@ contract ProofBountyEscrowTest {
         vm.prank(CHALLENGER); escrow.recoverPendingAttempt(61, 610);
         bytes32 fundingTx = keccak256("activated-before-recovery");
         vm.prank(RELAYER); escrow.bindAttempt(61, 610, 0, fundingTx, _bindSig(61, 610, 0, CHALLENGER, fundingTx));
-        (,uint256 boundBond,,,,,,,) = escrow.attempts(61, 0);
+        (,uint256 boundBond,,,,,,,,) = escrow.attempts(61, 0);
         require(boundBond == 0, "recovered bond rebound");
         bytes32 state = keccak256("winner-after-reconciliation");
         vm.prank(RELAYER); escrow.executeDecision(61, 0, 1, 10_000, CHALLENGER, address(0), state, 1, 0, type(uint64).max, _settleSig(61, 0, 1, 10_000, CHALLENGER, address(0), state, 1, 0, type(uint64).max));
@@ -226,13 +227,42 @@ contract ProofBountyEscrowTest {
         vm.warp(uint256(expiry) + 1 days);
         vm.prank(CHALLENGER); vm.expectRevert(); escrow.recoverUnactivatedAppeal(66, 0);
         vm.warp(uint256(expiry) + 7 days);
-        vm.prank(CHALLENGER); escrow.recoverUnactivatedAppeal(66, 0);
+        vm.prank(CHALLENGER); vm.expectRevert(); escrow.recoverUnactivatedAppeal(66, 0);
+        bytes32 recoveryState = keccak256("genlayer-expired-bound-appeal");
+        uint64 validBefore = uint64(uint256(expiry) + 7 days + 10 minutes);
+        bytes32 fundingTx = keccak256(abi.encode("appeal", uint256(66), uint256(0)));
+        bytes memory recoveryAuth = _boundAppealRecoverySig(66, 0, CHALLENGER, fundingTx, recoveryState, validBefore);
+        vm.prank(CHALLENGER); vm.expectRevert();
+        escrow.recoverAbandonedBoundAppeal(66, 0, keccak256("tampered-state"), validBefore, recoveryAuth);
+        vm.prank(CHALLENGER); escrow.recoverAbandonedBoundAppeal(66, 0, recoveryState, validBefore, recoveryAuth);
 
         bytes32 reconciled = keccak256("bound-expired-recovered");
         vm.prank(RELAYER); escrow.executeDecision(66, 0, 2, 0, CHALLENGER, address(0), reconciled, 1, 0, type(uint64).max, _settleSig(66, 0, 2, 0, CHALLENGER, address(0), reconciled, 1, 0, type(uint64).max));
         require(escrow.claimable(CHALLENGER) == BOND * 2, "bound expiry recovery stranded funds");
-        (,,uint256 appealBond,,,,,,bool recovered) = escrow.attempts(66, 0);
+        (,,uint256 appealBond,,,,,,bool recovered,) = escrow.attempts(66, 0);
         require(appealBond == 0 && recovered, "recovery state not explicit");
+    }
+
+    function testActivatedAppealCannotRecoverAfterSevenDaysAndAdverseOutcomeAllocatesBond() public {
+        _fundAndRegister(67);
+        _fundAndBindAttempt(67, 670, 0, CHALLENGER);
+        uint64 expiry = uint64(block.timestamp + 10 minutes);
+        _fundAndBindAppeal(67, 0, CHALLENGER, expiry);
+
+        // Models confirm_appeal_binding succeeding on GenLayer. Even after the
+        // orphan delay, the appellant has no state-eligible recovery signature.
+        vm.warp(uint256(expiry) + 7 days);
+        vm.prank(CHALLENGER); vm.expectRevert(); escrow.recoverUnactivatedAppeal(67, 0);
+        bytes32 falseAbandonment = keccak256("active-appeal-is-not-abandoned");
+        uint64 validBefore = uint64(uint256(expiry) + 7 days + 10 minutes);
+        vm.prank(CHALLENGER); vm.expectRevert();
+        escrow.recoverAbandonedBoundAppeal(67, 0, falseAbandonment, validBefore, hex"");
+
+        // Fresh consensus upholds the arbiter. The original bond and appeal
+        // bond are both still present and payable to the creator.
+        bytes32 adverse = keccak256("active-appeal-adverse-outcome");
+        vm.prank(RELAYER); escrow.executeDecision(67, 0, 3, 0, CREATOR, CREATOR, adverse, 1, 0, type(uint64).max, _settleSig(67, 0, 3, 0, CREATOR, CREATOR, adverse, 1, 0, type(uint64).max));
+        require(escrow.claimable(CREATOR) == BOND * 2, "appeal deterrent bypassed");
     }
 
     function testStaleAndConflictingSettlementInstructionsFail() public {
@@ -319,6 +349,9 @@ contract ProofBountyEscrowTest {
         vm.prank(appellant); escrow.fundAppeal(id, idx, expiry, _appealSig(id, idx, appellant, expiry));
         bytes32 fundingTx = keccak256(abi.encode("appeal", id, idx));
         vm.prank(RELAYER); escrow.bindAppeal(id, idx, fundingTx, _sign(keccak256(abi.encode(BIND_APPEAL_TYPEHASH, id, idx, appellant, fundingTx))));
+    }
+    function _boundAppealRecoverySig(uint256 id, uint256 idx, address appellant, bytes32 fundingTx, bytes32 stateHash, uint64 validBefore) private returns (bytes memory) {
+        return _sign(keccak256(abi.encode(RECOVER_BOUND_APPEAL_TYPEHASH, id, idx, appellant, fundingTx, GENLAYER, stateHash, validBefore)));
     }
     function _settleSig(uint256 id, uint256 idx, uint8 outcome, uint16 payout, address recipient, address appealRecipient, bytes32 stateHash, uint256 nonce, uint64 validAfter, uint64 validBefore) private returns (bytes memory) {
         return _settleSigWithKey(SIGNER_KEY, id, idx, outcome, payout, recipient, appealRecipient, stateHash, nonce, validAfter, validBefore);

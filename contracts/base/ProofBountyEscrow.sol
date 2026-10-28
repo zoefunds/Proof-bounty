@@ -45,6 +45,7 @@ contract ProofBountyEscrow {
         uint64 appealAuthorizationExpiry;
         bool appealBound;
         bool appealRecovered;
+        bytes32 appealFundingTxHash;
     }
 
     IERC20 public immutable usdc;
@@ -83,6 +84,9 @@ contract ProofBountyEscrow {
     bytes32 private constant BIND_APPEAL_TYPEHASH = keccak256(
         "BindAppeal(uint256 bountyId,uint256 attemptIndex,address appellant,bytes32 baseFundingTxHash)"
     );
+    bytes32 private constant RECOVER_BOUND_APPEAL_TYPEHASH = keccak256(
+        "RecoverBoundAppeal(uint256 bountyId,uint256 attemptIndex,address appellant,bytes32 baseFundingTxHash,address genlayerContract,bytes32 genlayerStateHash,uint64 validBefore)"
+    );
 
     mapping(uint256 => Bounty) public bounties;
     mapping(uint256 => mapping(uint256 => PendingAttempt)) public pendingAttempts;
@@ -99,6 +103,7 @@ contract ProofBountyEscrow {
     event AppealFunded(uint256 indexed bountyId, uint256 indexed attemptIndex, address indexed appellant, uint256 bond);
     event AppealBound(uint256 indexed bountyId, uint256 indexed attemptIndex, address indexed appellant, bytes32 baseFundingTxHash);
     event UnactivatedAppealRecovered(uint256 indexed bountyId, uint256 indexed attemptIndex, address indexed appellant, uint256 bond);
+    event AbandonedBoundAppealRecovered(uint256 indexed bountyId, uint256 indexed attemptIndex, address indexed appellant, uint256 bond, bytes32 genlayerStateHash);
     event DecisionExecuted(uint256 indexed bountyId, uint256 indexed attemptIndex, Outcome outcome, bytes32 decisionHash);
     event Claimed(address indexed account, uint256 amount);
     event OrphanRecovered(uint256 indexed bountyId, address indexed creator, uint256 amount);
@@ -281,24 +286,49 @@ contract ProofBountyEscrow {
         ));
         require(_isAuthorized(instruction, authorization), "ProofBounty: bad appeal binding authorization");
         a.appealBound = true;
+        a.appealFundingTxHash = baseFundingTxHash;
         emit AppealBound(bountyId, attemptIndex, a.appealPayer, baseFundingTxHash);
     }
 
-    /// An appeal deposit that did not reach a financially settled outcome is
-    /// recoverable without privileged service availability. Bound deposits use
-    /// the longer orphan delay so the relay/attestor has ample time to finish;
-    /// settlement recognizes the explicit recovered flag and never fabricates
-    /// a missing appeal allocation.
+    /// An appeal deposit that never bound to a GenLayer appeal is recoverable
+    /// by its payer after the short orphan delay without a service signature.
     function recoverUnactivatedAppeal(uint256 bountyId, uint256 attemptIndex) external nonReentrant {
         Attempt storage a = attempts[bountyId][attemptIndex];
-        require(msg.sender == a.appealPayer && a.appealBond > 0 && !a.settled && !a.appealRecovered, "ProofBounty: appeal recovery unavailable");
-        uint256 delay = a.appealBound ? ORPHAN_DELAY : PENDING_ATTEMPT_RECOVERY_DELAY;
-        require(block.timestamp >= uint256(a.appealAuthorizationExpiry) + delay, "ProofBounty: appeal recovery delay");
+        require(msg.sender == a.appealPayer && a.appealBond > 0 && !a.appealBound && !a.settled && !a.appealRecovered, "ProofBounty: appeal recovery unavailable");
+        require(block.timestamp >= uint256(a.appealAuthorizationExpiry) + PENDING_ATTEMPT_RECOVERY_DELAY, "ProofBounty: appeal recovery delay");
         uint256 amount = a.appealBond;
         a.appealBond = 0;
         a.appealRecovered = true;
         claimable[msg.sender] += amount;
         emit UnactivatedAppealRecovered(bountyId, attemptIndex, msg.sender, amount);
+    }
+
+    /// Recover a bound deposit only when the decision signer has freshly
+    /// attested that finalized GenLayer state marks this exact funding
+    /// transaction as abandoned. Execution remains permissionless to the
+    /// appellant and does not depend on the relayer transaction key.
+    function recoverAbandonedBoundAppeal(
+        uint256 bountyId,
+        uint256 attemptIndex,
+        bytes32 genlayerStateHash,
+        uint64 validBefore,
+        bytes calldata authorization
+    ) external nonReentrant {
+        Bounty storage b = bounties[bountyId];
+        Attempt storage a = attempts[bountyId][attemptIndex];
+        require(msg.sender == a.appealPayer && a.appealBond > 0 && a.appealBound && !a.settled && !a.appealRecovered, "ProofBounty: bound appeal recovery unavailable");
+        require(block.timestamp >= uint256(a.appealAuthorizationExpiry) + ORPHAN_DELAY, "ProofBounty: appeal recovery delay");
+        require(genlayerStateHash != bytes32(0) && block.timestamp <= validBefore, "ProofBounty: recovery authorization expired");
+        bytes32 instruction = keccak256(abi.encode(
+            RECOVER_BOUND_APPEAL_TYPEHASH, bountyId, attemptIndex, msg.sender,
+            a.appealFundingTxHash, b.genlayerContract, genlayerStateHash, validBefore
+        ));
+        require(_isAuthorized(instruction, authorization), "ProofBounty: bad recovery authorization");
+        uint256 amount = a.appealBond;
+        a.appealBond = 0;
+        a.appealRecovered = true;
+        claimable[msg.sender] += amount;
+        emit AbandonedBoundAppealRecovered(bountyId, attemptIndex, msg.sender, amount, genlayerStateHash);
     }
 
     /// Winner settles the reward and its bond. BondRefund/BondForfeit settle

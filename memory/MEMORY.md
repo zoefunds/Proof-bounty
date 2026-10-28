@@ -7,7 +7,7 @@ being mistaken for production configuration.
 ## Production
 
 - GenLayer adjudication: `0x8A27ead9Db4Aa269eC5b298129270E23e63ADCA2`
-- Base Sepolia escrow: `0xFC271817DA30f1BEf651ef5BacDd1a37127f0976`
+- Base Sepolia escrow: `0x4fD51A722A6E7Eb939Ba790b58759E12CB2dd2c6`
 - Base Sepolia USDC: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
 - Frontend: `https://proof-bounty.vercel.app`
 - API/relay: `https://proofbounty-usdc-api.fly.dev`
@@ -29,10 +29,12 @@ Settlement uses a separate Base relayer and EIP-712 decision signer, canonical
 GenLayer state hashes, per-bounty nonces, and validity windows. The keys are
 distinct but currently share one Fly host, which is an explicit testnet trust
 assumption. Delayed creator/challenger recovery needs no service signature.
-For appeals, unbound collateral recovers one day after authorization expiry;
-bound, unsettled collateral uses the seven-day orphan delay. Base cannot prove
-GenLayer expiry, so this timer-based fallback is testnet-only and must become a
-verified or threshold-authorized cross-chain decision before mainnet.
+For appeals, unbound collateral recovers one day after authorization expiry.
+Bound collateral uses the seven-day orphan delay and then requires a
+short-lived authorization derived from fresh finalized GenLayer state proving
+the appeal expired without a recipient. Base cannot prove GenLayer state, so
+the decision signer remains the disclosed testnet oracle; use verified or
+threshold authorization before mainnet.
 
 ## Live roles
 
@@ -46,8 +48,8 @@ or documentation.
 
 ## Verification status
 
-- Foundry Base suite: 15/15 passing.
-- Backend appeal reconciliation suite: 7/7 passing.
+- Foundry Base suite: 16/16 passing.
+- Backend appeal integrity suite: 12/12 passing.
 - Selected deterministic GenLayer direct suite: 6/6 passing.
 - API typecheck/build and Prisma generation: passing.
 - Frontend lint/typecheck and Vercel production build: passing.

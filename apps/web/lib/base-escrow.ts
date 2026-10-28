@@ -13,6 +13,7 @@ const ESCROW_ABI = [
   "function recoverOrphanBounty(uint256 bountyId)",
   "function fundAppeal(uint256 bountyId,uint256 attemptIndex,uint64 authorizationExpiry,bytes authorization)",
   "function recoverUnactivatedAppeal(uint256 bountyId,uint256 attemptIndex)",
+  "function recoverAbandonedBoundAppeal(uint256 bountyId,uint256 attemptIndex,bytes32 genlayerStateHash,uint64 validBefore,bytes authorization)",
   "function claim()",
   "function claimable(address account) view returns (uint256)",
 ];
@@ -70,6 +71,10 @@ export function useBaseEscrow() {
       const { escrow } = await contracts();
       await (await escrow.recoverUnactivatedAppeal(id, index)).wait();
     },
+    recoverAbandonedBoundAppeal: async (id: number, index: number, genlayerStateHash: string, validBefore: number, authorization: string) => {
+      const { escrow } = await contracts();
+      await (await escrow.recoverAbandonedBoundAppeal(id, index, genlayerStateHash, validBefore, authorization)).wait();
+    },
     claim: async () => {
       const { escrow } = await contracts();
       await (await escrow.claim()).wait();
@@ -96,6 +101,13 @@ export function requestBountyFundingAuthorization(bountyId: number, creator: str
 
 export function requestAppealFundingAuthorization(bountyId: number, attemptIndex: number, appellant: string) {
   return post<{ authorization: string; authorizationExpiry: number; bond: string }>("/base/appeal-funding-authorization", { bountyId, attemptIndex, appellant });
+}
+
+export function requestAppealRecoveryAuthorization(bountyId: number, attemptIndex: number, appellant: string) {
+  return post<
+    { mode: "unbound" } |
+    { mode: "bound"; authorization: string; genlayerStateHash: string; validBefore: number }
+  >("/base/appeal-recovery-authorization", { bountyId, attemptIndex, appellant });
 }
 
 export function confirmAppealFunding(bountyId: number, attemptIndex: number, appellant: string, baseFundingTxHash: string) {
